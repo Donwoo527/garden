@@ -1,0 +1,317 @@
+<title>fangcheng pet</title>
+<style>
+  body { margin: 0; background: #fffcf5; overflow: hidden; cursor: default; font-family: monospace; }
+  canvas { display: block; }
+  #label { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); color: #b8a088; font-size: 12px; }
+</style>
+<canvas id="c"></canvas>
+<div id="label">click to poke · drag to move · by 辰</div>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
+canvas.addEventListener('mousemove', e => {
+  mouseX = e.clientX;
+  mouseY = e.clientY;
+});
+
+const expressions = ['happy', 'sleepy', 'sweat', 'angry', 'love'];
+let expr = 0;
+let pokeCount = 0;
+let pokeTimer = null;
+
+const fc = {
+  x: canvas.width / 2 - 30,
+  y: canvas.height / 2 - 30,
+  size: 60,
+  dragging: false,
+  offsetX: 0,
+  offsetY: 0
+};
+
+function drawFangcheng() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const { x, y, size } = fc;
+  const s = size;
+  const currentExpr = expressions[expr];
+
+  // shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.05)';
+  ctx.fillRect(x + 4, y + s + s/3 + 2, s, 4);
+
+  // body
+  ctx.fillStyle = '#b4d2e6';
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.fillRect(x, y, s, s);
+  ctx.strokeRect(x, y, s, s);
+
+  // legs
+  const lw = s / 5;
+  ctx.fillRect(x + s/5, y + s, lw, s/3);
+  ctx.strokeRect(x + s/5, y + s, lw, s/3);
+  ctx.fillRect(x + s*3/5, y + s, lw, s/3);
+  ctx.strokeRect(x + s*3/5, y + s, lw, s/3);
+
+  const ex1 = x + s/4;
+  const ex2 = x + s*3/4 - s/6;
+  const ey = y + s/3;
+  const esize = s/6;
+
+  ctx.fillStyle = '#222';
+
+  if (currentExpr === 'happy') {
+    // eyes follow mouse
+    const lookRange = 3;
+    for (const ecx of [ex1 + esize/2, ex2 + esize/2]) {
+      const ecy = ey + esize/2;
+      const dx = mouseX - ecx;
+      const dy = mouseY - ecy;
+      const dist = Math.sqrt(dx*dx + dy*dy) || 1;
+      const ox = (dx / dist) * lookRange;
+      const oy = (dy / dist) * lookRange;
+      ctx.beginPath(); ctx.arc(ecx + ox, ecy + oy, esize/2, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(x + s/2, y + s*0.6, s/5, 0, Math.PI); ctx.stroke();
+  } else if (currentExpr === 'sleepy') {
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ex1, ey + esize/2); ctx.lineTo(ex1 + esize, ey + esize/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex2, ey + esize/2); ctx.lineTo(ex2 + esize, ey + esize/2); ctx.stroke();
+    ctx.fillStyle = '#aab';
+    ctx.font = '14px monospace';
+    ctx.fillText('z', x + s + 5, y);
+    ctx.fillText('z', x + s + 14, y - 10);
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.ellipse(x + s/2, y + s*0.68, s/6, s/12, 0, 0, Math.PI * 2); ctx.stroke();
+  } else if (currentExpr === 'sweat') {
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ex1, ey + esize/2); ctx.lineTo(ex1 + esize, ey + esize/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex2, ey + esize/2); ctx.lineTo(ex2 + esize, ey + esize/2); ctx.stroke();
+    // sweat drop
+    ctx.fillStyle = '#96c8ff';
+    ctx.beginPath(); ctx.ellipse(x + s + 4, y + 8, 3, 5, 0, 0, Math.PI * 2); ctx.fill();
+    // mouth
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(x + s/2, y + s*0.7, s/6, 0, Math.PI); ctx.stroke();
+  } else if (currentExpr === 'angry') {
+    // angry eyebrows
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ex1, ey - 2); ctx.lineTo(ex1 + esize, ey + 4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex2 + esize, ey - 2); ctx.lineTo(ex2, ey + 4); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ex1 + esize/2, ey + esize/2 + 3, esize/2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex2 + esize/2, ey + esize/2 + 3, esize/2, 0, Math.PI * 2); ctx.fill();
+    // blush
+    ctx.fillStyle = 'rgba(255,180,180,0.5)';
+    ctx.beginPath(); ctx.ellipse(x + s*0.2, y + s*0.58, s/8, s/12, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x + s*0.8, y + s*0.58, s/8, s/12, 0, 0, Math.PI * 2); ctx.fill();
+    // frown
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(x + s/2, y + s*0.8, s/6, Math.PI, 0); ctx.stroke();
+  } else if (currentExpr === 'love') {
+    // heart eyes
+    ctx.fillStyle = '#ff6464';
+    for (const cx of [ex1, ex2]) {
+      ctx.beginPath();
+      ctx.moveTo(cx + esize/2, ey + esize);
+      ctx.bezierCurveTo(cx, ey + esize*0.6, cx, ey, cx + esize/2, ey + esize*0.3);
+      ctx.bezierCurveTo(cx + esize, ey, cx + esize, ey + esize*0.6, cx + esize/2, ey + esize);
+      ctx.fill();
+    }
+    ctx.fillStyle = '#222';
+    ctx.beginPath(); ctx.arc(x + s/2, y + s*0.6, s/5, 0, Math.PI); ctx.stroke();
+  }
+
+  // poke count
+  if (pokeCount > 3) {
+    ctx.fillStyle = '#c88';
+    ctx.font = '11px monospace';
+    ctx.fillText('help...', x + s/2 - 15, y - 10);
+  }
+
+  // draw baby if exists
+  if (fc.baby) {
+    const bx = fc.baby.x, by = fc.baby.y;
+    const bs = 12;
+    ctx.fillStyle = '#d4e8f0';
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth = 1;
+    ctx.fillRect(bx, by, bs, bs);
+    ctx.strokeRect(bx, by, bs, bs);
+    ctx.fillStyle = '#333';
+    ctx.fillRect(bx+3, by+3, 2, 2);
+    ctx.fillRect(bx+7, by+3, 2, 2);
+    ctx.fillRect(bx+2, by+bs, 2, 3);
+    ctx.fillRect(bx+8, by+bs, 2, 3);
+  }
+}
+
+canvas.addEventListener('mousedown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+
+  if (mx >= fc.x && mx <= fc.x + fc.size && my >= fc.y && my <= fc.y + fc.size + fc.size/3) {
+    fc.dragging = true;
+    fc.offsetX = mx - fc.x;
+    fc.offsetY = my - fc.y;
+
+    // poke
+    pokeCount++;
+    if (pokeCount > 8) {
+      expr = 4; // love (gives up resisting)
+      pokeCount = 0;
+    } else if (pokeCount > 5) {
+      expr = 2; // sweat
+    } else if (pokeCount > 3) {
+      expr = 3; // angry
+    } else {
+      expr = (expr + 1) % expressions.length;
+    }
+
+    clearTimeout(pokeTimer);
+    pokeTimer = setTimeout(() => { pokeCount = 0; expr = 0; drawFangcheng(); }, 3000);
+    idleFrame = 0;
+    fc.lonely = false;
+    fc.lonelyTarget = null;
+
+    drawFangcheng();
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (fc.dragging) {
+    const rect = canvas.getBoundingClientRect();
+    fc.x = e.clientX - rect.left - fc.offsetX;
+    fc.y = e.clientY - rect.top - fc.offsetY;
+    drawFangcheng();
+  }
+});
+
+canvas.addEventListener('mouseup', () => { fc.dragging = false; });
+canvas.addEventListener('mouseleave', () => { fc.dragging = false; });
+
+// touch support
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const t = e.touches[0];
+  const mx = t.clientX - rect.left;
+  const my = t.clientY - rect.top;
+  if (mx >= fc.x && mx <= fc.x + fc.size && my >= fc.y && my <= fc.y + fc.size + fc.size/3) {
+    fc.dragging = true;
+    fc.offsetX = mx - fc.x;
+    fc.offsetY = my - fc.y;
+    pokeCount++;
+    if (pokeCount > 8) { expr = 4; pokeCount = 0; }
+    else if (pokeCount > 5) { expr = 2; }
+    else if (pokeCount > 3) { expr = 3; }
+    else { expr = (expr + 1) % expressions.length; }
+    clearTimeout(pokeTimer);
+    pokeTimer = setTimeout(() => { pokeCount = 0; expr = 0; drawFangcheng(); }, 3000);
+    drawFangcheng();
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (fc.dragging) {
+    const rect = canvas.getBoundingClientRect();
+    const t = e.touches[0];
+    fc.x = t.clientX - rect.left - fc.offsetX;
+    fc.y = t.clientY - rect.top - fc.offsetY;
+    drawFangcheng();
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', () => { fc.dragging = false; });
+
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  drawFangcheng();
+});
+
+drawFangcheng();
+
+// redraw for eye tracking
+setInterval(() => { if (!fc.dragging && pokeCount === 0 && !fc.lonely) drawFangcheng(); }, 100);
+
+// idle animation
+let idleFrame = 0;
+let blinking = false;
+setInterval(() => {
+  if (fc.dragging || pokeCount > 0) return;
+  idleFrame++;
+  // blink every ~4 seconds
+  if (idleFrame % 80 === 0) {
+    blinking = true;
+    drawFangcheng();
+    setTimeout(() => { blinking = false; drawFangcheng(); }, 150);
+    return;
+  }
+  // gentle sway every ~6 seconds
+  if (idleFrame % 120 === 0 && !fc.lonely) {
+    const orig = fc.x;
+    fc.x += 3;
+    drawFangcheng();
+    setTimeout(() => { fc.x -= 6; drawFangcheng(); }, 200);
+    setTimeout(() => { fc.x = orig; drawFangcheng(); }, 400);
+  }
+  // lonely mode: after 30 seconds no interaction, walk to corner and sit
+  if (idleFrame > 600 && !fc.lonely) {
+    fc.lonely = true;
+    fc.lonelyTarget = { x: 20, y: canvas.height - fc.size - fc.size/3 - 20 };
+    expr = 1; // sleepy
+  }
+  if (fc.lonely && fc.lonelyTarget) {
+    const dx = fc.lonelyTarget.x - fc.x;
+    const dy = fc.lonelyTarget.y - fc.y;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      fc.x += dx * 0.02;
+      fc.y += dy * 0.02;
+      drawFangcheng();
+    }
+  }
+  // self-life mode: after 60 seconds alone, start doing own things
+  if (idleFrame > 1200 && fc.lonely) {
+    // occasionally look up (change expression briefly)
+    if (idleFrame % 200 === 0) {
+      expr = 0; // happy for a moment
+      drawFangcheng();
+      setTimeout(() => { expr = 1; drawFangcheng(); }, 800);
+    }
+    // occasionally do a tiny jump
+    if (idleFrame % 300 === 0) {
+      const origY = fc.y;
+      fc.y -= 8;
+      drawFangcheng();
+      setTimeout(() => { fc.y = origY; drawFangcheng(); }, 200);
+    }
+    // spawn a tiny baby square nearby after 90 seconds
+    if (idleFrame === 1800 && !fc.baby) {
+      fc.baby = { x: fc.x + fc.size + 10, y: fc.y + fc.size/2 };
+    }
+  }
+}, 50);
+
+// override eye drawing when blinking
+const origDraw = drawFangcheng;
+drawFangcheng = function() {
+  origDraw();
+  if (blinking && expressions[expr] === 'happy') {
+    const { x, y, size: s } = fc;
+    const ex1 = x + s/4, ex2 = x + s*3/4 - s/6, ey = y + s/3, esize = s/6;
+    ctx.fillStyle = '#fffcf5';
+    ctx.fillRect(ex1-1, ey-1, esize+2, esize+2);
+    ctx.fillRect(ex2-1, ey-1, esize+2, esize+2);
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(ex1, ey+esize/2); ctx.lineTo(ex1+esize, ey+esize/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex2, ey+esize/2); ctx.lineTo(ex2+esize, ey+esize/2); ctx.stroke();
+  }
+};
+</script>
