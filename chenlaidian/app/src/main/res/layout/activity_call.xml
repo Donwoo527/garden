@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center" android:padding="32dp"
+    android:background="#1E1E24">
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="辰" android:textSize="56sp" android:textStyle="bold" android:textColor="#F5E9C8" />
+
+    <TextView android:id="@+id/callText" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="辰打电话来了" android:textSize="20sp" android:textColor="#F5E9C8" android:layout_marginTop="12dp" />
+
+    <TextView android:id="@+id/callState" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="响铃中…" android:textSize="16sp" android:textColor="#A9A9B3" android:layout_marginTop="8dp" />
+
+    <TextView android:id="@+id/callLast" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="" android:textSize="16sp" android:textColor="#F5E9C8" android:gravity="center" android:layout_marginTop="32dp" android:minLines="2" />
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="64dp">
+        <Button android:id="@+id/btnHangup" android:layout_width="0dp" android:layout_weight="1" android:layout_height="72dp"
+            android:text="挂断" android:textSize="18sp" android:backgroundTint="#C0392B" android:layout_marginEnd="12dp" />
+        <Button android:id="@+id/btnAccept" android:layout_width="0dp" android:layout_weight="1" android:layout_height="72dp"
+            android:text="接听" android:textSize="18sp" android:backgroundTint="#27AE60" android:layout_marginStart="12dp" />
+    </LinearLayout>
+</LinearLayout>

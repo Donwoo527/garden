@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="24dp" android:gravity="top">
+
+    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="辰来电" android:textSize="28sp" android:textStyle="bold" android:layout_marginTop="24dp" />
+
+    <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="未启动" android:textSize="20sp" android:layout_marginTop="16dp" />
+
+    <TextView android:id="@+id/last" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="" android:textSize="16sp" android:layout_marginTop="8dp" android:minLines="2" />
+
+    <Button android:id="@+id/btnStart" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="上线（启动服务）" android:layout_marginTop="24dp" />
+    <Button android:id="@+id/btnTest" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="测试来电（本地）" android:layout_marginTop="8dp" />
+    <Button android:id="@+id/btnBattery" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="电池优化：改成不限制" android:layout_marginTop="24dp" />
+    <Button android:id="@+id/btnFullScreen" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="全屏来电权限" android:layout_marginTop="8dp" />
+    <Button android:id="@+id/btnSettings" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="应用设置（自启动/后台）" android:layout_marginTop="8dp" />
+    <Button android:id="@+id/btnStop" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="下线" android:layout_marginTop="24dp" />
+</LinearLayout>
