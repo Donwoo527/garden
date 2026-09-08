@@ -64,6 +64,12 @@ object ChatApi {
 
     fun markMomentsRead(ctx: Context): Boolean = postJson(ctx, "/moments/read", JSONObject())
 
+    /** 天气（服务端代理 wttr.in）：temp/feels/humidity/desc/wind/maxTemp/minTemp */
+    fun weather(ctx: Context, city: String = "Ningbo"): JSONObject? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/api/weather?city=" + city).get().build()
+        return try { http(ctx).newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body?.string() ?: return null) else null } } catch (e: Exception) { null }
+    }
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()
