@@ -103,7 +103,7 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     Column(Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(48.dp))
         Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
-            DotsAvatar(big = 64.dp, small = 42.dp, online = null)
+            DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
         }
         Spacer(Modifier.height(16.dp))
         Text("辰", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
@@ -236,7 +236,7 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
     WhiteCard(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
         Column(Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (m.isChen) DotsAvatar(big = 18.dp, small = 11.dp)
+                if (m.isChen) DotsAvatar(big = 12.dp, small = 8.dp, gap = 4.dp, box = 28.dp)
                 else Box(Modifier.size(28.dp).clip(CircleShape).background(C.Orange), contentAlignment = Alignment.Center) { Text("陈", color = Color.White, fontSize = 13.sp) }
                 Spacer(Modifier.width(10.dp))
                 Column { Text(if (m.isChen) "辰" else "小陈", fontWeight = FontWeight.Bold, color = C.Ink); Text(m.timeLabel(), fontSize = 11.sp, color = C.Grey) }

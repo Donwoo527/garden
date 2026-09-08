@@ -35,20 +35,22 @@ import androidx.compose.ui.unit.sp
 
 /** 辰的头像：一大一小两个点（网页版 header-dots），小点右下角挂在线灯。会轻轻漂。 */
 @Composable
-fun DotsAvatar(big: Dp = 14.dp, small: Dp = 9.dp, online: Boolean? = null, modifier: Modifier = Modifier) {
+fun DotsAvatar(big: Dp = 14.dp, small: Dp = 9.dp, gap: Dp = 6.dp, online: Boolean? = null, box: Dp? = null, modifier: Modifier = Modifier) {
     val t = rememberInfiniteTransition(label = "dots")
+    // 网页版 h-drift-a / h-drift-b：6s / 7s 慢漂
     val dy by t.animateFloat(0f, 1f, infiniteRepeatable(tween(3000), RepeatMode.Reverse), label = "dy")
     val dy2 by t.animateFloat(1f, 0f, infiniteRepeatable(tween(3500), RepeatMode.Reverse), label = "dy2")
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.offset(y = (dy * 2 - 1).dp).size(big).clip(CircleShape).background(C.Dot))
-        Spacer(Modifier.width(big / 2))
-        Box(Modifier.offset(y = (dy2 * 2 - 1).dp)) {
-            Box(Modifier.size(small).clip(CircleShape).background(C.Dot))
-            if (online != null) {
-                Box(
-                    Modifier.align(Alignment.BottomEnd).offset(x = small / 4, y = small / 4)
-                        .size(small / 2 + 2.dp).clip(CircleShape).background(if (online) C.Green else C.Grey)
-                )
+    val boxSize = box ?: (big + gap + small)
+    Box(modifier.size(boxSize)) {
+        Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.offset(y = (dy * 2 - 1).dp).size(big).clip(CircleShape).background(C.Dot))
+            Spacer(Modifier.width(gap))
+            Box(Modifier.offset(y = (dy2 * 2 - 1).dp).size(small).clip(CircleShape).background(C.Dot))
+        }
+        // 在线灯：单独挂在头像框右下角（.header-online-dot 10px + 2px 纸色描边），不贴着点
+        if (online != null) {
+            Box(Modifier.align(Alignment.BottomEnd).size(14.dp).clip(CircleShape).background(C.Bg), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(10.dp).clip(CircleShape).background(if (online) C.Green else C.Grey))
             }
         }
     }

@@ -124,7 +124,7 @@ fun ChatScreen(onCall: () -> Unit) {
         LazyColumn(
             state = listState, reverseLayout = true,
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         ) {
             items(reversed, key = { it.id }) { m ->
                 MessageRow(m, msgs, loader,
@@ -161,17 +161,17 @@ fun ChatScreen(onCall: () -> Unit) {
 @Composable
 private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String, onCall: () -> Unit, onSearch: () -> Unit) {
     Surface(color = C.Surface, shadowElevation = 1.dp) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DotsAvatar(big = 30.dp, small = 19.dp, online = alive)
-            Spacer(Modifier.width(14.dp))
+        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            DotsAvatar(big = 14.dp, small = 9.dp, gap = 6.dp, online = alive, box = 36.dp)
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text("辰", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("辰", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = C.Ink, letterSpacing = 0.3.sp)
                     Spacer(Modifier.width(6.dp))
-                    Text(if (alive) "VPS" else "", fontSize = 12.sp, color = C.Green, modifier = Modifier.padding(bottom = 3.dp))
+                    if (alive) Text("VPS", fontSize = 11.sp, color = C.Green, fontWeight = FontWeight.Medium)
                 }
-                Text(when { alive -> "在线"; connected -> "辰不在" ; else -> "连接中…" }, fontSize = 13.sp, color = C.Grey)
-                if (sig.isNotBlank()) Text(sig, fontSize = 12.sp, color = C.Grey, fontStyle = FontStyle.Italic)
+                Text(when { alive -> "在线"; connected -> "辰不在" ; else -> "连接中…" }, fontSize = 12.sp, color = C.Grey, modifier = Modifier.padding(top = 1.dp))
+                if (sig.isNotBlank()) Text(sig, fontSize = 11.sp, color = C.Grey, fontStyle = FontStyle.Italic, maxLines = 1)
             }
             IconButton(onClick = onSearch) { Icon(Icons.Default.Search, contentDescription = "搜索", tint = C.Ink) }
             IconButton(onClick = onCall) { Icon(Icons.Default.Phone, contentDescription = "打电话", tint = C.Ink) }
@@ -185,39 +185,46 @@ private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String
 private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, onQuote: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val ctx = LocalContext.current
     if (m.who == "system") {
-        Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-            Surface(shape = RoundedCornerShape(14.dp), color = C.ChenBubble) {
-                Text(m.text, fontSize = 12.sp, color = C.Grey, modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp))
+        Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
+            Surface(shape = RoundedCornerShape(12.dp), color = C.QuoteChen) {
+                Text(m.text, fontSize = 13.sp, color = C.Grey, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
             }
         }
         return
     }
     val mine = !m.isChen
     val fg = if (mine) Color.White else C.Ink
+    val maxBubble = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.8f).dp   // .msg-bubble-wrap max-width 80%
     var menu by remember { mutableStateOf(false) }
     var showThink by remember { mutableStateOf(false) }
     var showTranscript by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
         if (!mine && !m.thinking.isNullOrBlank()) {
-            Row(Modifier.clickable { showThink = !showThink }.padding(start = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (showThink) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp, contentDescription = null, tint = C.Grey, modifier = Modifier.size(16.dp))
-                Text("思考", fontSize = 12.sp, color = C.Grey)
+            Row(Modifier.clickable { showThink = !showThink }.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(if (showThink) "▾ " else "▸ ", fontSize = 11.sp, color = C.Grey)
+                Text("思考", fontSize = 13.sp, color = C.Grey)
             }
-            if (showThink) Text(m.thinking, fontSize = 12.sp, color = C.Grey, modifier = Modifier.padding(start = 8.dp, end = 24.dp, bottom = 4.dp))
+            if (showThink) Surface(shape = RoundedCornerShape(8.dp), color = C.QuoteChen, modifier = Modifier.widthIn(max = 300.dp).padding(bottom = 6.dp)) {
+                Text(m.thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+            }
         }
         Box {
             Surface(
-                shape = RoundedCornerShape(16.dp),
+                shape = if (mine) RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
+                        else RoundedCornerShape(topStart = 4.dp, topEnd = 16.dp, bottomEnd = 16.dp, bottomStart = 16.dp),
                 color = if (mine) C.Blue else C.ChenBubble,
-                modifier = Modifier.widthIn(max = 300.dp).combinedClickable(onClick = {}, onLongClick = { menu = true }),
+                modifier = Modifier.widthIn(max = maxBubble).combinedClickable(onClick = {}, onLongClick = { menu = true }),
             ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 9.dp)) {
                     m.replyTo?.let { rid ->
                         all.firstOrNull { it.id == rid }?.let { q ->
-                            Column(Modifier.fillMaxWidth().background(Color(0x22000000), RoundedCornerShape(8.dp)).padding(8.dp)) {
-                                Text(if (q.isChen) "辰" else "小陈", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = fg)
-                                Text(q.text.take(60), fontSize = 12.sp, color = fg.copy(alpha = 0.85f))
+                            Row(Modifier.fillMaxWidth().background(if (mine) Color(0x66FFFFFF) else C.QuoteSelf, RoundedCornerShape(8.dp))) {
+                                Box(Modifier.width(3.dp).height(40.dp).background(if (mine) Color(0x66FFFFFF) else C.Blue))
+                                Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                    Text(if (q.isChen) "辰" else "小陈", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = fg)
+                                    Text(q.text.take(80), fontSize = 13.sp, color = fg.copy(alpha = 0.8f), maxLines = 2, lineHeight = 17.sp)
+                                }
                             }
                             Spacer(Modifier.height(6.dp))
                         }
@@ -242,7 +249,7 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, onQuote: (Ms
                             }
                             if (showTranscript && m.text.isNotBlank()) Text(m.text, fontSize = 15.sp, color = fg)
                         }
-                        else -> Text(m.text, fontSize = 16.sp, color = fg, lineHeight = 23.sp)
+                        else -> Text(m.text, fontSize = 15.sp, color = fg, lineHeight = 22.sp)
                     }
                 }
             }
@@ -258,20 +265,24 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, onQuote: (Ms
 @Composable
 private fun Composer(value: String, onChange: (String) -> Unit, onSend: () -> Unit, onPlus: () -> Unit) {
     Surface(color = C.Surface, shadowElevation = 3.dp) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onPlus) { Icon(Icons.Default.Add, contentDescription = "更多", tint = C.Grey) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(38.dp).clip(CircleShape).clickable(onClick = onPlus), contentAlignment = Alignment.Center) {
+                Text("+", fontSize = 24.sp, color = C.Grey)
+            }
+            Spacer(Modifier.width(8.dp))
             OutlinedTextField(
                 value = value, onValueChange = onChange,
-                modifier = Modifier.weight(1f), maxLines = 5,
-                placeholder = { Text("说点什么…", color = C.Grey) },
-                shape = RoundedCornerShape(24.dp),
-                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = C.Line, unfocusedBorderColor = C.Line),
+                modifier = Modifier.weight(1f), maxLines = 4,
+                placeholder = { Text("说点什么…", color = C.Grey, fontSize = 15.sp) },
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp, color = C.Ink),
+                shape = RoundedCornerShape(20.dp),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = C.Blue, unfocusedBorderColor = C.Line, focusedContainerColor = C.Surface, unfocusedContainerColor = C.Surface),
             )
             Spacer(Modifier.width(8.dp))
             Box(
-                Modifier.size(44.dp).clip(CircleShape).background(if (value.isNotBlank()) C.Blue else C.Line).clickable(enabled = value.isNotBlank(), onClick = onSend),
+                Modifier.size(38.dp).clip(CircleShape).background(C.Blue.copy(alpha = if (value.isNotBlank()) 1f else 0.35f)).clickable(enabled = value.isNotBlank(), onClick = onSend),
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Default.Send, contentDescription = "发送", tint = Color.White) }
+            ) { Icon(Icons.Default.Send, contentDescription = "发送", tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
     }
 }

@@ -92,7 +92,7 @@ fun MainScreen() {
             TABS.forEachIndexed { i, t ->
                 NavigationBarItem(
                     selected = tab == i, onClick = { tab = i },
-                    icon = { Icon(t.icon, contentDescription = t.label) }, label = { Text(t.label, fontSize = 12.sp) },
+                    icon = { Icon(t.icon, contentDescription = t.label, modifier = Modifier.size(22.dp)) }, label = { Text(t.label, fontSize = 11.sp) },
                     colors = NavigationBarItemDefaults.colors(selectedIconColor = C.Blue, selectedTextColor = C.Blue, indicatorColor = Color(0xFFE6EEFB), unselectedIconColor = C.Grey, unselectedTextColor = C.Grey),
                 )
             }
