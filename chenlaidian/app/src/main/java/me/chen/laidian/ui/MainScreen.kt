@@ -22,6 +22,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.IconButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Email
@@ -162,6 +167,46 @@ private fun ToolsScreen() {
 /** 设置：资料卡 + 三张卡（照网页版）+ 我的资料编辑；电话服务那堆收进最下面的折叠 */
 @Composable
 private fun SettingsScreen() {
+    var showFavs by remember { mutableStateOf(false) }
+    if (showFavs) { FavoritesScreen(onBack = { showFavs = false }); return }
+    SettingsMain(onFavorites = { showFavs = true })
+}
+
+@Composable
+private fun FavoritesScreen(onBack: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<Pair<String, me.chen.laidian.model.Msg>>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { items = withContext(Dispatchers.IO) { ChatApi.favorites(ctx) } ?: emptyList(); loaded = true }
+    Column(Modifier.fillMaxSize().background(C.Bg)) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = C.Ink) }
+            Text("收藏的消息", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+        }
+        if (loaded && items.isEmpty()) Text("还没收藏过 长按聊天气泡→收藏", color = C.Grey, modifier = Modifier.padding(24.dp))
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(items, key = { it.first }) { (fid, m) ->
+                WhiteCard(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Column(Modifier.padding(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (m.isChen) "辰" else "小陈", fontWeight = FontWeight.Bold, color = C.Ink)
+                            Spacer(Modifier.width(8.dp))
+                            Text(m.timeLabel(), fontSize = 11.sp, color = C.Grey, modifier = Modifier.weight(1f))
+                            Text("删除", fontSize = 12.sp, color = C.Grey, modifier = Modifier.clickable {
+                                scope.launch { if (withContext(Dispatchers.IO) { ChatApi.deleteFavorite(ctx, fid) }) items = items.filter { it.first != fid } }
+                            })
+                        }
+                        Text(m.text.ifBlank { if (m.images.isNotEmpty() || m.media != null) "[图片]" else if (m.voice != null) "[语音]" else "" }, fontSize = 15.sp, color = C.Ink, modifier = Modifier.padding(top = 6.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsMain(onFavorites: () -> Unit) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val myMood by ChatClient.myMood.collectAsState()
@@ -189,7 +234,7 @@ private fun SettingsScreen() {
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconCard("给辰换头像", Icons.Default.Person, C.Blue, Modifier.weight(1f)) { todo("换头像") }
-            IconCard("收藏的消息", Icons.Default.Star, C.Blue, Modifier.weight(1f)) { todo("收藏") }
+            IconCard("收藏的消息", Icons.Default.Star, C.Blue, Modifier.weight(1f)) { onFavorites() }
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

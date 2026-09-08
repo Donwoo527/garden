@@ -64,6 +64,29 @@ object ChatApi {
 
     fun markMomentsRead(ctx: Context): Boolean = postJson(ctx, "/moments/read", JSONObject())
 
+    /** 收藏一条消息（快照） */
+    fun addFavorite(ctx: Context, m: me.chen.laidian.model.Msg): Boolean {
+        val snap = JSONObject().put("id", m.id).put("who", m.who).put("type", m.msgType).put("text", m.text).put("ts", m.ts)
+        if (m.media != null) snap.put("media", m.media)
+        if (m.voice != null) snap.put("voice", m.voice)
+        if (m.images.isNotEmpty()) snap.put("images", JSONArray(m.images))
+        return postJson(ctx, "/favorites", JSONObject().put("msg", snap))
+    }
+
+    /** 收藏列表：[{id, ts, msg}] 新的在前 */
+    fun favorites(ctx: Context): List<Pair<String, me.chen.laidian.model.Msg>>? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/favorites").header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return null
+                val a = JSONObject(r.body?.string() ?: return null).optJSONArray("items") ?: return emptyList()
+                (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { it -> it.optJSONObject("msg")?.let { m -> it.optString("id") to me.chen.laidian.model.Msg.from(m) } } }
+            }
+        } catch (e: Exception) { null }
+    }
+
+    fun deleteFavorite(ctx: Context, id: String): Boolean = postJson(ctx, "/favorites/delete", JSONObject().put("id", id))
+
     /** 天气（服务端代理 wttr.in）：temp/feels/humidity/desc/wind/maxTemp/minTemp */
     fun weather(ctx: Context, city: String = "Ningbo"): JSONObject? {
         val req = Request.Builder().url(ChatClient.baseUrl() + "/api/weather?city=" + city).get().build()

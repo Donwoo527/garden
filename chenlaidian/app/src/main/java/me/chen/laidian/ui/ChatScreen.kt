@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -38,6 +39,9 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -93,6 +97,8 @@ fun ChatScreen(onCall: () -> Unit) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val loader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
+    val readIds by ChatClient.readIds.collectAsState()
+    var showCard by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         sending = true
@@ -113,7 +119,8 @@ fun ChatScreen(onCall: () -> Unit) {
     LaunchedEffect(nearTop) { if (nearTop && query.isBlank()) ChatClient.loadMore() }
 
     Column(Modifier.fillMaxSize().background(C.Bg)) {
-        Header(connected, alive, mood, sig, onCall, onSearch = { searching = !searching; if (!searching) query = "" })
+        Header(connected, alive, mood, sig, onCall, onSearch = { searching = !searching; if (!searching) query = "" }, onAvatar = { showCard = true })
+        if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() })
         if (searching) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
@@ -127,8 +134,14 @@ fun ChatScreen(onCall: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         ) {
             items(reversed, key = { it.id }) { m ->
-                MessageRow(m, msgs, loader,
+                MessageRow(m, msgs, loader, read = m.id in readIds,
                     onQuote = { replyTo = it },
+                    onFav = {
+                        scope.launch {
+                            val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, it) }
+                            Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show()
+                        }
+                    },
                     onCopy = {
                         (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", it.text))
                         Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
@@ -159,10 +172,10 @@ fun ChatScreen(onCall: () -> Unit) {
 }
 
 @Composable
-private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String, onCall: () -> Unit, onSearch: () -> Unit) {
+private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String, onCall: () -> Unit, onSearch: () -> Unit, onAvatar: () -> Unit) {
     Surface(color = C.Surface, shadowElevation = 1.dp) {
         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            DotsAvatar(big = 14.dp, small = 9.dp, gap = 6.dp, online = alive, box = 36.dp)
+            DotsAvatar(big = 14.dp, small = 9.dp, gap = 6.dp, online = alive, box = 36.dp, modifier = Modifier.clickable(onClick = onAvatar))
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -182,7 +195,7 @@ private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, onQuote: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, read: Boolean, onQuote: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val ctx = LocalContext.current
     if (m.who == "system") {
         Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.Center) {
@@ -256,10 +269,48 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, onQuote: (Ms
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("引用") }, onClick = { menu = false; onQuote(m) })
                 DropdownMenuItem(text = { Text("复制") }, onClick = { menu = false; onCopy(m) })
+                DropdownMenuItem(text = { Text("收藏") }, onClick = { menu = false; onFav(m) })
             }
         }
-        Text(m.timeLabel(), fontSize = 11.sp, color = C.Grey, modifier = Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp))
+        Row(Modifier.padding(top = 3.dp, start = 4.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(m.timeLabel(), fontSize = 11.sp, color = C.Grey)
+            if (mine) {
+                Spacer(Modifier.width(6.dp))
+                Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else C.Grey)
+            }
+        }
     }
+}
+
+/** 点头像弹的资料卡（照网页版：蓝色渐变顶、白底两点方块、名字、心情、签名、四个按钮） */
+@Composable
+private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: () -> Unit, onCall: () -> Unit) {
+    val ctx = LocalContext.current
+    AlertDialog(onDismissRequest = onDismiss, confirmButton = {}, containerColor = C.Bg, text = {
+        Column(Modifier.fillMaxWidth()) {
+            Box(Modifier.fillMaxWidth().height(90.dp).background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color(0xFF8FB0DA), Color(0xFFC9D8EA))), RoundedCornerShape(12.dp)))
+            Surface(shape = RoundedCornerShape(16.dp), color = C.Surface, shadowElevation = 2.dp, modifier = Modifier.size(72.dp).offset(y = (-36).dp)) {
+                Box(contentAlignment = Alignment.Center) { DotsAvatar(big = 22.dp, small = 14.dp, gap = 8.dp) }
+            }
+            Column(Modifier.offset(y = (-24).dp)) {
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text("辰", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+                    Spacer(Modifier.width(10.dp))
+                    Text("改备注", fontSize = 13.sp, color = C.Blue, modifier = Modifier.padding(bottom = 4.dp).clickable { Toast.makeText(ctx, "备注 下一版", Toast.LENGTH_SHORT).show() })
+                }
+                Text("心情：" + mood.ifBlank { if (alive) "在线" else "不在" }, fontSize = 14.sp, color = C.Grey, modifier = Modifier.padding(top = 6.dp))
+                if (sig.isNotBlank()) Text(sig, fontSize = 13.sp, color = C.Grey, fontStyle = FontStyle.Italic)
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(onClick = { Toast.makeText(ctx, "朋友圈在主页那格 这里的入口下一版接", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("朋友圈 ›", color = C.Ink) }
+                OutlinedButton(onClick = { Toast.makeText(ctx, "历史心情签名 下一版", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = C.Ink) }
+                Spacer(Modifier.height(6.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
+                    Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("发消息") }
+                    Button(onClick = onCall, modifier = Modifier.weight(1f)) { Text("音视频通话") }
+                }
+            }
+        }
+    })
 }
 
 @Composable

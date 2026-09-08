@@ -32,6 +32,8 @@ object ChatClient {
     val signature = MutableStateFlow("")
     val myMood = MutableStateFlow("")
     val mySignature = MutableStateFlow("")
+    /** 辰已读的消息 id（服务端 /ack 广播 read 事件） */
+    val readIds = MutableStateFlow<Set<String>>(emptySet())
     val moments = MutableStateFlow<List<Moment>>(emptyList())
     val momentsUnread = MutableStateFlow(0)
     /** 新消息回调（服务用它在 app 不在前台时弹通知） */
@@ -103,6 +105,7 @@ object ChatClient {
                 }
             }
             "status" -> status.value = o.optString("state", "idle")
+            "read" -> o.optJSONArray("ids")?.let { a -> readIds.value = readIds.value + (0 until a.length()).map { i -> a.optString(i) } }
             "session_status" -> sessionAlive.value = o.optBoolean("alive", false)
             "profile" -> {
                 o.optString("mood", "").takeIf { it.isNotBlank() }?.let { mood.value = it }
