@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import me.chen.laidian.BuildConfig
 import me.chen.laidian.Tls
 import me.chen.laidian.model.Msg
+import me.chen.laidian.model.Moment
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -31,6 +32,8 @@ object ChatClient {
     val signature = MutableStateFlow("")
     val myMood = MutableStateFlow("")
     val mySignature = MutableStateFlow("")
+    val moments = MutableStateFlow<List<Moment>>(emptyList())
+    val momentsUnread = MutableStateFlow(0)
     /** 新消息回调（服务用它在 app 不在前台时弹通知） */
     @Volatile var onMessage: ((Msg) -> Unit)? = null
 
@@ -109,6 +112,16 @@ object ChatClient {
                 myMood.value = o.optString("mood", "")
                 mySignature.value = o.optString("signature", "")
             }
+            "moment" -> o.optJSONObject("item")?.let { m ->
+                val it = Moment.from(m)
+                moments.value = listOf(it) + moments.value.filter { x -> x.id != it.id }
+            }
+            "moment_update" -> o.optJSONObject("item")?.let { m ->
+                val it = Moment.from(m)
+                moments.value = moments.value.map { x -> if (x.id == it.id) it else x }
+            }
+            "moment_delete" -> { val id = o.optString("id"); moments.value = moments.value.filter { it.id != id } }
+            "moments_unread" -> momentsUnread.value = o.optInt("count", 0)
         }
     }
 

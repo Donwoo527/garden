@@ -102,26 +102,6 @@ private fun Placeholder(title: String, note: String) {
 }
 
 @Composable
-private fun HomeScreen(onCall: () -> Unit) {
-    val ctx = LocalContext.current
-    val mood by ChatClient.mood.collectAsState()
-    val sig by ChatClient.signature.collectAsState()
-    val alive by ChatClient.sessionAlive.collectAsState()
-    Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text("辰", fontSize = 40.sp, fontWeight = FontWeight.Bold)
-        Text(if (alive) "在线" else "不在", fontSize = 14.sp)
-        if (mood.isNotBlank()) Text(mood, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
-        if (sig.isNotBlank()) Text(sig, fontSize = 14.sp)
-        Spacer(Modifier.height(32.dp))
-        Button(onClick = { ChatClient.poke(); Toast.makeText(ctx, "戳了一下", Toast.LENGTH_SHORT).show() }) { Text("戳一戳") }
-        Spacer(Modifier.height(12.dp))
-        OutlinedButton(onClick = onCall) { Text("打电话给辰") }
-        Spacer(Modifier.height(32.dp))
-        Text("听歌 / 看书 / 朋友圈 / 相册 / 礼物 / 收藏 下一版", fontSize = 12.sp)
-    }
-}
-
-@Composable
 private fun ToolsScreen() {
     val ctx = LocalContext.current
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {

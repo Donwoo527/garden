@@ -42,6 +42,28 @@ object ChatApi {
         ctx, "/user_profile", JSONObject().put("mood", mood).put("signature", signature)
     )
 
+    /** 拉朋友圈（新的在前） */
+    fun loadMoments(ctx: Context): List<me.chen.laidian.model.Moment>? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/moments").header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return null
+                me.chen.laidian.model.Moment.list(JSONObject(r.body?.string() ?: return null).optJSONArray("items"))
+            }
+        } catch (e: Exception) { null }
+    }
+
+    fun postMoment(ctx: Context, text: String, urls: List<String>): Boolean =
+        postJson(ctx, "/moments", JSONObject().put("who", "xiaochen").put("text", text).put("images", JSONArray(urls)))
+
+    fun likeMoment(ctx: Context, id: String): Boolean =
+        postJson(ctx, "/moments/react", JSONObject().put("id", id).put("like", "xiaochen"))
+
+    fun commentMoment(ctx: Context, id: String, text: String): Boolean =
+        postJson(ctx, "/moments/react", JSONObject().put("id", id).put("comment", JSONObject().put("who", "xiaochen").put("text", text)))
+
+    fun markMomentsRead(ctx: Context): Boolean = postJson(ctx, "/moments/read", JSONObject())
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()
