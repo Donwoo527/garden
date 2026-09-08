@@ -18,6 +18,8 @@ data class Msg(
     val replyTo: String?,
     val thinking: String?,
     val ts: Double,
+    val images: List<String> = emptyList(),
+    val filename: String? = null,
 ) {
     val isChen get() = who == "chen"
 
@@ -47,6 +49,8 @@ data class Msg(
                 replyTo = o.str("reply_to"),
                 thinking = o.str("thinking"),
                 ts = o.optDouble("ts", 0.0),
+                images = o.optJSONArray("images")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optString(i).takeIf { it.isNotBlank() } } } ?: emptyList(),
+                filename = o.str("filename"),
             )
         }
 

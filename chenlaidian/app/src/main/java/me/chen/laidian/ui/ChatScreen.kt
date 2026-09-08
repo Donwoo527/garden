@@ -4,6 +4,15 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import me.chen.laidian.net.ChatApi
+import me.chen.laidian.net.ImageUtil
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -82,6 +91,24 @@ fun ChatScreen(onCall: () -> Unit) {
     val sig by ChatClient.signature.collectAsState()
     var input by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<Msg?>(null) }
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        sending = true
+        val caption = input.trim()
+        scope.launch {
+            val urls = withContext(Dispatchers.IO) {
+                uris.mapNotNull { u -> ImageUtil.compress(ctx, u)?.let { ChatApi.uploadImage(ctx, it) } }
+            }
+            val ok = urls.isNotEmpty() && withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, urls, caption) }
+            sending = false
+            if (ok) { input = ""; replyTo = null } else Toast.makeText(ctx, "图片发送失败", Toast.LENGTH_SHORT).show()
+        }
+    }
+    val shown = if (query.isBlank()) msgs else msgs.filter { it.text.contains(query, ignoreCase = true) }
     val listState = rememberLazyListState()
     val loader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
 
@@ -93,13 +120,20 @@ fun ChatScreen(onCall: () -> Unit) {
     LaunchedEffect(atTop, msgs.size) { if (atTop && msgs.size >= 50) ChatClient.loadMore() }
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Header(connected, alive, mood, sig, onCall)
+        Header(connected, alive, mood, sig, onCall, onSearch = { searching = !searching; if (!searching) query = "" })
+        if (searching) {
+            OutlinedTextField(
+                value = query, onValueChange = { query = it }, singleLine = true,
+                placeholder = { Text("搜聊天记录") },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            )
+        }
         LazyColumn(
             state = listState,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         ) {
-            items(msgs, key = { it.id }) { m ->
+            items(shown, key = { it.id }) { m ->
                 MessageRow(m, msgs, loader,
                     onQuote = { replyTo = it },
                     onCopy = {
@@ -108,6 +142,9 @@ fun ChatScreen(onCall: () -> Unit) {
                         Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show()
                     })
             }
+        }
+        if (sending) {
+            Text("图片上传中…", fontSize = 12.sp, color = Grey, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
         }
         if (status == "thinking") {
             Text("辰在想…", fontSize = 12.sp, color = Grey, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
@@ -131,13 +168,13 @@ fun ChatScreen(onCall: () -> Unit) {
                     else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show()
                 }
             },
-            onPlus = { Toast.makeText(ctx, "图片/文件 下一版", Toast.LENGTH_SHORT).show() },
+            onPlus = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
         )
     }
 }
 
 @Composable
-private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String, onCall: () -> Unit) {
+private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String, onCall: () -> Unit, onSearch: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary), contentAlignment = Alignment.Center) {
@@ -158,7 +195,7 @@ private fun Header(connected: Boolean, alive: Boolean, mood: String, sig: String
                 if (mood.isNotBlank()) Text(mood, fontSize = 12.sp)
                 if (sig.isNotBlank()) Text(sig, fontSize = 12.sp, color = Grey)
             }
-            IconButton(onClick = {}) { Icon(Icons.Default.Search, contentDescription = "搜索") }
+            IconButton(onClick = onSearch) { Icon(Icons.Default.Search, contentDescription = "搜索") }
             IconButton(onClick = onCall) { Icon(Icons.Default.Phone, contentDescription = "打电话") }
             IconButton(onClick = {}) { Icon(Icons.Default.Menu, contentDescription = "会话") }
         }
@@ -200,7 +237,14 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, onQuote: (Ms
                             Spacer(Modifier.height(6.dp))
                         }
                     }
-                    if (m.msgType == "image" && m.media != null) {
+                    if (m.msgType == "images" && m.images.isNotEmpty()) {
+                        m.images.forEach { u ->
+                            AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = null, modifier = Modifier.widthIn(max = 260.dp).padding(bottom = 4.dp))
+                        }
+                        if (m.text.isNotBlank()) Text(m.text, fontSize = 16.sp, modifier = Modifier.padding(top = 2.dp))
+                    } else if (m.msgType == "file") {
+                        Text("📎 " + (m.filename ?: "文件"), fontSize = 15.sp)
+                    } else if (m.msgType == "image" && m.media != null) {
                         AsyncImage(model = ChatClient.mediaUrl(m.media), imageLoader = loader, contentDescription = null, modifier = Modifier.widthIn(max = 260.dp))
                         if (m.text.isNotBlank()) Text(m.text, fontSize = 16.sp, modifier = Modifier.padding(top = 6.dp))
                     } else if (m.msgType == "voice" && m.voice != null) {

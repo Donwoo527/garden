@@ -35,6 +35,14 @@ import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.OutlinedTextField
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import me.chen.laidian.net.ChatApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -157,6 +165,21 @@ private fun SettingsScreen() {
             else Toast.makeText(ctx, "这个系统版本不用单独开", Toast.LENGTH_SHORT).show()
         }, modifier = Modifier.fillMaxWidth()) { Text("全屏来电权限") }
         OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))) }, modifier = Modifier.fillMaxWidth()) { Text("应用设置（自启动/后台）") }
+        Spacer(Modifier.height(24.dp))
+        Text("我的资料", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        val myMood by ChatClient.myMood.collectAsState()
+        val mySig by ChatClient.mySignature.collectAsState()
+        var moodEdit by remember(myMood) { mutableStateOf(myMood) }
+        var sigEdit by remember(mySig) { mutableStateOf(mySig) }
+        val scope = rememberCoroutineScope()
+        OutlinedTextField(value = moodEdit, onValueChange = { moodEdit = it }, label = { Text("心情") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        OutlinedTextField(value = sigEdit, onValueChange = { sigEdit = it }, label = { Text("签名") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        Button(onClick = {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) { ChatApi.setProfile(ctx, moodEdit, sigEdit) }
+                Toast.makeText(ctx, if (ok) "已保存 辰那边能看到" else "保存失败", Toast.LENGTH_SHORT).show()
+            }
+        }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("保存") }
         Spacer(Modifier.height(24.dp))
         Text("版本 ${BuildConfig.VERSION_NAME}", fontSize = 12.sp)
     }

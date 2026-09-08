@@ -23,6 +23,9 @@ class MainActivity : ComponentActivity() {
         setContent { ChenTheme { MainScreen() } }
     }
 
+    override fun onResume() { super.onResume(); AppState.visible = true }
+    override fun onPause() { AppState.visible = false; super.onPause() }
+
     private fun askPermissions() {
         val wanted = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= 33) wanted += Manifest.permission.POST_NOTIFICATIONS

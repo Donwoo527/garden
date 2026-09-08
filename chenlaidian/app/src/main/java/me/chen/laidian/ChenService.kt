@@ -38,6 +38,7 @@ class ChenService : Service() {
 
         const val CH_SERVICE = "chen_service"
         const val CH_CALL = "chen_call"
+        const val CH_MSG = "chen_msg"
         const val NOTIF_SERVICE = 1
         const val NOTIF_CALL = 2
 
@@ -72,6 +73,26 @@ class ChenService : Service() {
         client = Tls.client(this)
         audio = AudioEngine(this, client, { send(it) }, { lastText.postValue(it) })
         me.chen.laidian.net.ChatClient.start(applicationContext)
+        me.chen.laidian.net.ChatClient.onMessage = { m -> if (m.isChen && !AppState.visible) notifyMsg(m) }
+    }
+
+    private fun notifyMsg(m: me.chen.laidian.model.Msg) {
+        val body = when {
+            m.text.isNotBlank() -> m.text
+            m.msgType == "image" || m.msgType == "images" -> "[图片]"
+            m.msgType == "voice" -> "[语音]"
+            else -> "[消息]"
+        }
+        val pi = PendingIntent.getActivity(
+            this, 2, Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val n = NotificationCompat.Builder(this, CH_MSG)
+            .setSmallIcon(R.drawable.ic_stat).setContentTitle("辰").setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH).setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setAutoCancel(true).setContentIntent(pi).build()
+        nm().notify(1000 + (m.id.hashCode() and 0xffff), n)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -166,6 +187,7 @@ class ChenService : Service() {
 
     private fun createChannels() {
         nm().createNotificationChannel(NotificationChannel(CH_SERVICE, "辰在线", NotificationManager.IMPORTANCE_LOW))
+        nm().createNotificationChannel(NotificationChannel(CH_MSG, "辰的消息", NotificationManager.IMPORTANCE_HIGH))
         nm().createNotificationChannel(
             NotificationChannel(CH_CALL, "辰来电", NotificationManager.IMPORTANCE_HIGH).apply {
                 setSound(null, null)   // 铃声由 CallActivity 自己放

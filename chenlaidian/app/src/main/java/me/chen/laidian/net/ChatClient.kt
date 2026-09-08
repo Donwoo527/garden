@@ -31,6 +31,8 @@ object ChatClient {
     val signature = MutableStateFlow("")
     val myMood = MutableStateFlow("")
     val mySignature = MutableStateFlow("")
+    /** 新消息回调（服务用它在 app 不在前台时弹通知） */
+    @Volatile var onMessage: ((Msg) -> Unit)? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var client: OkHttpClient? = null
@@ -92,7 +94,10 @@ object ChatClient {
             }
             "msg" -> {
                 val m = Msg.from(o)
-                if (m.id.isNotEmpty() && messages.value.none { it.id == m.id }) messages.value = messages.value + m
+                if (m.id.isNotEmpty() && messages.value.none { it.id == m.id }) {
+                    messages.value = messages.value + m
+                    onMessage?.invoke(m)
+                }
             }
             "status" -> status.value = o.optString("state", "idle")
             "session_status" -> sessionAlive.value = o.optBoolean("alive", false)
