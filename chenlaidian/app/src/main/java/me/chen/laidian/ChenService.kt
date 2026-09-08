@@ -34,6 +34,7 @@ class ChenService : Service() {
         const val ACTION_TEST_CALL = "me.chen.laidian.TEST_CALL"
         const val ACTION_ACCEPT = "me.chen.laidian.ACCEPT"
         const val ACTION_HANGUP = "me.chen.laidian.HANGUP"
+        const val ACTION_SPEAKER = "me.chen.laidian.SPEAKER"
 
         const val CH_SERVICE = "chen_service"
         const val CH_CALL = "chen_call"
@@ -42,6 +43,9 @@ class ChenService : Service() {
 
         val status = MutableLiveData("未启动")
         val lastText = MutableLiveData("")
+        /** 空闲 / 响铃中 / 通话中 / 已挂断 */
+        val callState = MutableLiveData("空闲")
+        val speakerOn = MutableLiveData(false)
         @Volatile var running = false
     }
 
@@ -50,6 +54,8 @@ class ChenService : Service() {
     @Volatile private var ws: WebSocket? = null
     private var backoffMs = 1000L
     private var foregroundStarted = false
+    private lateinit var audio: AudioEngine
+    @Volatile private var inCall = false
 
     private val pingRunnable = object : Runnable {
         override fun run() {
@@ -64,6 +70,7 @@ class ChenService : Service() {
         super.onCreate()
         createChannels()
         client = Tls.client(this)
+        audio = AudioEngine(this, client, { send(it) }, { lastText.postValue(it) })
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -79,8 +86,12 @@ class ChenService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_TEST_CALL -> { showIncomingCall("测试来电（本地）"); return START_STICKY }
-            ACTION_ACCEPT -> { send(JSONObject().put("type", "call_accept")); cancelCallNotif(); return START_STICKY }
-            ACTION_HANGUP -> { send(JSONObject().put("type", "hangup")); cancelCallNotif(); return START_STICKY }
+            ACTION_ACCEPT -> { acceptCall(); return START_STICKY }
+            ACTION_HANGUP -> { send(JSONObject().put("type", "hangup")); endCall("已挂断"); return START_STICKY }
+            ACTION_SPEAKER -> {
+                if (inCall) { audio.setSpeaker(!audio.isSpeaker()); speakerOn.postValue(audio.isSpeaker()) }
+                return START_STICKY
+            }
         }
         running = true
         connect()
@@ -89,6 +100,7 @@ class ChenService : Service() {
 
     override fun onDestroy() {
         running = false
+        if (inCall) endCall("已挂断")
         handler.removeCallbacksAndMessages(null)
         ws?.close(1000, "destroy"); ws = null
         super.onDestroy()
@@ -136,9 +148,13 @@ class ChenService : Service() {
             "pong" -> {}
             "status" -> lastText.postValue(o.optString("message"))
             "stt" -> lastText.postValue("你：" + o.optString("text"))
-            "reply", "audio_reply" -> lastText.postValue("辰：" + o.optString("text"))
+            "reply", "audio_reply" -> {
+                lastText.postValue("辰：" + o.optString("text"))
+                val url = o.optString("audio_url", "")
+                if (inCall && url.isNotEmpty()) audio.enqueueReply(url)
+            }
             "incoming_call" -> showIncomingCall(o.optString("text", "辰打电话来了"))
-            "hangup" -> cancelCallNotif()
+            "hangup" -> endCall("已挂断")
             "error" -> setStatus("错误：" + o.optString("message"))
         }
     }
@@ -184,6 +200,7 @@ class ChenService : Service() {
     }
 
     private fun showIncomingCall(text: String) {
+        callState.postValue("响铃中")
         val intent = Intent(this, CallActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             .putExtra("text", text)
@@ -206,4 +223,47 @@ class ChenService : Service() {
     }
 
     private fun cancelCallNotif() = nm().cancel(NOTIF_CALL)
+
+    // ---------- 通话 ----------
+
+    private fun hasMic() = androidx.core.content.ContextCompat.checkSelfPermission(
+        this, android.Manifest.permission.RECORD_AUDIO
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun acceptCall() {
+        cancelCallNotif()
+        send(JSONObject().put("type", "call_accept"))
+        if (!hasMic()) {
+            callState.postValue("通话中")
+            lastText.postValue("没有麦克风权限，只能听不能说")
+            inCall = true
+            return
+        }
+        // 通话期间前台服务类型加上麦克风（Android 14 强制）
+        if (Build.VERSION.SDK_INT >= 29) {
+            ServiceCompat.startForeground(
+                this, NOTIF_SERVICE, serviceNotif("通话中"),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        }
+        inCall = true
+        callState.postValue("通话中")
+        speakerOn.postValue(false)
+        audio.startCall()
+    }
+
+    private fun endCall(finalState: String) {
+        cancelCallNotif()
+        if (inCall) {
+            inCall = false
+            audio.endCall()
+            if (Build.VERSION.SDK_INT >= 29 && foregroundStarted) {
+                ServiceCompat.startForeground(
+                    this, NOTIF_SERVICE, serviceNotif(status.value ?: "辰在线"),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            }
+        }
+        callState.postValue(finalState)
+    }
 }

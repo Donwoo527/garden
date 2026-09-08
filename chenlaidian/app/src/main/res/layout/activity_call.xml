@@ -16,8 +16,11 @@
     <TextView android:id="@+id/callLast" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="" android:textSize="16sp" android:textColor="#F5E9C8" android:gravity="center" android:layout_marginTop="32dp" android:minLines="2" />
 
+    <Button android:id="@+id/btnSpeaker" android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:text="免提：关" android:visibility="gone" android:layout_marginTop="24dp" />
+
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="64dp">
+        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="40dp">
         <Button android:id="@+id/btnHangup" android:layout_width="0dp" android:layout_weight="1" android:layout_height="72dp"
             android:text="挂断" android:textSize="18sp" android:backgroundTint="#C0392B" android:layout_marginEnd="12dp" />
         <Button android:id="@+id/btnAccept" android:layout_width="0dp" android:layout_weight="1" android:layout_height="72dp"

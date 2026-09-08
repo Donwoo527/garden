@@ -40,12 +40,19 @@ class CallActivity : AppCompatActivity() {
         val state = findViewById<TextView>(R.id.callState)
         val accept = findViewById<Button>(R.id.btnAccept)
         val hangup = findViewById<Button>(R.id.btnHangup)
+        val speaker = findViewById<Button>(R.id.btnSpeaker)
         ChenService.lastText.observe(this) { findViewById<TextView>(R.id.callLast).text = it }
+        ChenService.speakerOn.observe(this) { speaker.text = if (it) "免提：开" else "免提：关" }
+        ChenService.callState.observe(this) {
+            if (it == "已挂断") { stopRinging(); finish() }
+            else if (it == "通话中") { stopRinging(); state.text = "通话中"; accept.visibility = View.GONE; speaker.visibility = View.VISIBLE }
+        }
+        speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
 
         startRinging()
         accept.setOnClickListener {
             stopRinging()
-            state.text = "通话中（声音在 M2）"
+            state.text = "接通中…"
             accept.visibility = View.GONE
             svc(ChenService.ACTION_ACCEPT)
         }
