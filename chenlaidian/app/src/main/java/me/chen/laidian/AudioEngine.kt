@@ -35,8 +35,8 @@ class AudioEngine(
         private const val FRAME_BYTES = SAMPLE_RATE * 2 * FRAME_MS / 1000      // 640
         private const val SPEECH_RMS = 700.0        // 判"在说话"的能量门槛（int16 尺度），之后按实机调
         private const val MIN_SPEECH_MS = 350       // 短于这个的当噪音丢掉
-        private const val END_SILENCE_MS = 700      // 说完停顿多久算一句
-        private const val MAX_UTTERANCE_MS = 10000  // 一句最长
+        private const val END_SILENCE_MS = 1500      // 说完停顿多久算一句（0908 实测 700 会把她的话切碎）
+        private const val MAX_UTTERANCE_MS = 15000  // 一句最长
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -51,7 +51,7 @@ class AudioEngine(
 
     fun startCall() {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager.isSpeakerphoneOn = false
+        setSpeaker(false)
         startCapture()
         startPlayer()
     }
@@ -59,12 +59,26 @@ class AudioEngine(
     fun endCall() {
         stopCapture()
         stopPlayer()
+        if (android.os.Build.VERSION.SDK_INT >= 31) audioManager.clearCommunicationDevice()
         audioManager.mode = AudioManager.MODE_NORMAL
-        audioManager.isSpeakerphoneOn = false
+        speaker = false
     }
 
-    fun setSpeaker(on: Boolean) { audioManager.isSpeakerphoneOn = on }
-    fun isSpeaker() = audioManager.isSpeakerphoneOn
+    @Volatile private var speaker = false
+
+    /** Android 12+ 的 isSpeakerphoneOn 不可靠（0908 实测免提一直显示关），改走 communication device。 */
+    fun setSpeaker(on: Boolean) {
+        speaker = on
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val want = if (on) android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            val dev = audioManager.availableCommunicationDevices.firstOrNull { it.type == want }
+            if (dev != null) audioManager.setCommunicationDevice(dev) else audioManager.isSpeakerphoneOn = on
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isSpeakerphoneOn = on
+        }
+    }
+    fun isSpeaker() = speaker
 
     // ---------- 录音 ----------
 

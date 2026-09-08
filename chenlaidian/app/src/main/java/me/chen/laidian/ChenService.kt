@@ -71,6 +71,7 @@ class ChenService : Service() {
         createChannels()
         client = Tls.client(this)
         audio = AudioEngine(this, client, { send(it) }, { lastText.postValue(it) })
+        me.chen.laidian.net.ChatClient.start(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -232,6 +233,7 @@ class ChenService : Service() {
 
     private fun acceptCall() {
         cancelCallNotif()
+        if (!running) { running = true; connect() }
         send(JSONObject().put("type", "call_accept"))
         if (!hasMic()) {
             callState.postValue("通话中")

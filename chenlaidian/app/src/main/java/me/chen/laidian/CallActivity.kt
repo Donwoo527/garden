@@ -49,7 +49,15 @@ class CallActivity : AppCompatActivity() {
         }
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
 
-        startRinging()
+        val outgoing = intent.getBooleanExtra("outgoing", false)
+        if (outgoing) {
+            findViewById<TextView>(R.id.callText).text = "打给辰"
+            state.text = "接通中…"
+            accept.visibility = View.GONE
+            svc(ChenService.ACTION_ACCEPT)
+        } else {
+            startRinging()
+        }
         accept.setOnClickListener {
             stopRinging()
             state.text = "接通中…"

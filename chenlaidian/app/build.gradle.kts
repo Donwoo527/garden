@@ -11,12 +11,13 @@ android {
         applicationId = "me.chen.laidian"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2-m2"
+        versionCode = 4
+        versionName = "0.4-m3"
         // 真 token 在 GitHub Actions 的 secret 里注入；本地/无 secret 时是 dev（连不上，但能编译）
         buildConfigField("String", "WS_TOKEN", "\"${System.getenv("CHEN_WS_TOKEN") ?: "dev"}\"")
         buildConfigField("String", "SERVER_HOST", "\"45.76.170.242\"")
         buildConfigField("int", "SERVER_PORT", "8200")
+        buildConfigField("int", "CHAT_PORT", "8300")
     }
 
     buildFeatures {
@@ -45,4 +46,5 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.activity:activity-compose:1.9.1")
+    implementation("io.coil-kt:coil-compose:2.6.0")
 }
