@@ -87,6 +87,13 @@ object ChatApi {
 
     fun deleteFavorite(ctx: Context, id: String): Boolean = postJson(ctx, "/favorites/delete", JSONObject().put("id", id))
 
+    /** 崩溃日志：塞进收藏（后端唯一能存长文本的公开接口），辰在 VPS 上读 */
+    fun reportCrash(ctx: Context, text: String): Boolean {
+        val snap = JSONObject().put("id", "crash-" + System.currentTimeMillis()).put("who", "xiaochen").put("type", "text")
+            .put("text", "[crash]\n" + text).put("ts", System.currentTimeMillis() / 1000.0)
+        return postJson(ctx, "/favorites", JSONObject().put("msg", snap))
+    }
+
     /** 天气（服务端代理 wttr.in）：temp/feels/humidity/desc/wind/maxTemp/minTemp */
     fun weather(ctx: Context, city: String = "Ningbo"): JSONObject? {
         val req = Request.Builder().url(ChatClient.baseUrl() + "/api/weather?city=" + city).get().build()
