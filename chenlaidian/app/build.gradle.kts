@@ -11,8 +11,8 @@ android {
         applicationId = "me.chen.laidian"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "0.11-m3"
+        versionCode = 12
+        versionName = "0.12-m4"
         // 真 token 在 GitHub Actions 的 secret 里注入；本地/无 secret 时是 dev（连不上，但能编译）
         buildConfigField("String", "WS_TOKEN", "\"${System.getenv("CHEN_WS_TOKEN") ?: "dev"}\"")
         buildConfigField("String", "SERVER_HOST", "\"45.76.170.242\"")
@@ -47,4 +47,8 @@ dependencies {
     implementation("androidx.compose.runtime:runtime-livedata")
     implementation("androidx.activity:activity-compose:1.9.1")
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // 终端：Termux 的终端模拟器（纯 Java 的 VT 解析 + 屏幕缓冲），渲染我们自己用 Canvas 画
+    implementation("com.termux.termux-app:terminal-emulator:0.118.0")
+    implementation("com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava")
 }

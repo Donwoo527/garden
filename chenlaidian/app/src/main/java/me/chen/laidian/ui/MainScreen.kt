@@ -106,7 +106,7 @@ fun MainScreen() {
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
                 0 -> ChatScreen(onCall = startCall)
-                1 -> TerminalPlaceholder()
+                1 -> TerminalScreen()
                 2 -> HomeScreen(onCall = startCall)
                 3 -> ToolsScreen()
                 else -> SettingsScreen()
