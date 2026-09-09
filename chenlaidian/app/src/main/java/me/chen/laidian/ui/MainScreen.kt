@@ -105,7 +105,7 @@ fun MainScreen() {
     }) { pad ->
         Box(Modifier.padding(pad).fillMaxSize()) {
             when (tab) {
-                0 -> ChatScreen(onCall = startCall)
+                0 -> me.chen.laidian.ui.jet.JetConversation(onCall = startCall)
                 1 -> TerminalScreen()
                 2 -> HomeScreen(onCall = startCall)
                 3 -> ToolsScreen()

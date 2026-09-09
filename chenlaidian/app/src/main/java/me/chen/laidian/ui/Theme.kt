@@ -30,7 +30,11 @@ private val Light = lightColorScheme(
     onBackground = C.Ink,
     surface = C.Surface,
     onSurface = C.Ink,
-    secondary = C.Orange,
+    surfaceVariant = C.ChenBubble,      // 辰的气泡（Jetchat 用 surfaceVariant）
+    onSurfaceVariant = C.Grey,
+    secondary = C.Blue,
+    tertiary = C.Orange,
+    onTertiary = Color.White,
 )
 
 @Composable

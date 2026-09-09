@@ -34,6 +34,9 @@ object ChatClient {
     val mySignature = MutableStateFlow("")
     /** 辰已读的消息 id（服务端 /ack 广播 read 事件） */
     val readIds = MutableStateFlow<Set<String>>(emptySet())
+    /** 朋友圈配置里的头像（/media/...），没有就用默认 */
+    val avatarChen = MutableStateFlow("")
+    val avatarXiaochen = MutableStateFlow("")
     val moments = MutableStateFlow<List<Moment>>(emptyList())
     val momentsUnread = MutableStateFlow(0)
     /** 新消息回调（服务用它在 app 不在前台时弹通知） */
@@ -125,6 +128,10 @@ object ChatClient {
             }
             "moment_delete" -> { val id = o.optString("id"); moments.value = moments.value.filter { it.id != id } }
             "moments_unread" -> momentsUnread.value = o.optInt("count", 0)
+            "moments_config" -> o.optJSONObject("config")?.let { c ->
+                avatarChen.value = c.optString("avatar_chen", "")
+                avatarXiaochen.value = c.optString("avatar_xiaochen", "")
+            }
         }
     }
 
