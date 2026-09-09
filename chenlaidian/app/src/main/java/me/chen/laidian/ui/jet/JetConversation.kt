@@ -7,7 +7,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,6 +82,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LastBaseline
 import androidx.compose.ui.layout.layout
@@ -90,8 +93,10 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.roundToInt
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
@@ -364,9 +369,29 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
     val shape = if (isUserMe) MeBubbleShape else ChenBubbleShape
     // 0.19 她的规矩：气泡最远不越过对面头像那条线（两侧头像列各 54dp + 8dp 余量）
     val maxW = (LocalConfiguration.current.screenWidthDp - 116).dp
+    // 0.21 她设计稿：左滑气泡直接引用（滑过阈值触发+回弹；只吃水平手势，不挡列表滚动）
+    val offsetX = remember { Animatable(0f) }
+    val dragScope = rememberCoroutineScope()
+    val quoteThreshold = with(LocalDensity.current) { 56.dp.toPx() }
+    val maxDrag = with(LocalDensity.current) { 100.dp.toPx() }
     Column(horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
         Box {
-            Surface(color = bg, shape = shape, modifier = Modifier.widthIn(max = maxW).combinedClickable(onClick = {}, onLongClick = { menu = true })) {
+            Surface(color = bg, shape = shape, modifier = Modifier
+                .offset { IntOffset(offsetX.value.roundToInt(), 0) }
+                .widthIn(max = maxW)
+                .pointerInput(m.id) {
+                    detectHorizontalDragGestures(
+                        onDragEnd = {
+                            if (offsetX.value < -quoteThreshold) onQuote(m)
+                            dragScope.launch { offsetX.animateTo(0f) }
+                        },
+                        onDragCancel = { dragScope.launch { offsetX.animateTo(0f) } },
+                    ) { change, amount ->
+                        val new = (offsetX.value + amount).coerceIn(-maxDrag, 0f)
+                        if (new != offsetX.value) { change.consume(); dragScope.launch { offsetX.snapTo(new) } }
+                    }
+                }
+                .combinedClickable(onClick = {}, onLongClick = { menu = true })) {
                 Column(Modifier.padding(if (m.msgType == "voice") 6.dp else 0.dp)) {
                     quoted?.let { q ->
                         Row(Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp).background(fg.copy(alpha = 0.08f), RoundedCornerShape(8.dp))) {
