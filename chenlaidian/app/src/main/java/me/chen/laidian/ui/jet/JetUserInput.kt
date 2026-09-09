@@ -23,6 +23,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -54,7 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.chen.laidian.R
 
-enum class InputSelector { NONE, EMOJI }
+enum class InputSelector { NONE, EMOJI, PLUS }
 
 /** 输入栏（照 Jetchat）：文本框 + 表情/图片/电话 三个选择器 + 发送。表情面板内置。 */
 @Composable
@@ -98,10 +100,11 @@ fun JetUserInput(
                 }
             }
             Row(Modifier.height(64.dp).padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                // 0.19 她的规矩：➕收纳附件(相册等以后都进这)，表情单独留外面；电话键删了(顶栏有)
+                PlusButton(selected = selector == InputSelector.PLUS,
+                    onClick = { selector = if (selector == InputSelector.PLUS) InputSelector.NONE else InputSelector.PLUS })
                 SelectorButton(onClick = { selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI },
                     icon = painterResource(R.drawable.ic_mood), selected = selector == InputSelector.EMOJI, description = "表情")
-                SelectorButton(onClick = { dismiss(); onPickImages() }, icon = painterResource(R.drawable.ic_insert_photo), selected = false, description = "图片")
-                SelectorButton(onClick = { dismiss(); onCall() }, icon = painterResource(R.drawable.ic_duo), selected = false, description = "打电话")
                 Spacer(Modifier.weight(1f))
                 val enabled = textState.text.isNotBlank()
                 Button(
@@ -120,7 +123,35 @@ fun JetUserInput(
                     }, modifier = Modifier.padding(8.dp).focusable())
                 }
             }
+            if (selector == InputSelector.PLUS) {
+                Surface(tonalElevation = 8.dp) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                        PlusPanelItem(icon = painterResource(R.drawable.ic_insert_photo), label = "相册", onClick = { dismiss(); onPickImages() })
+                        // 以后：拍照 / 文件 / 位置 都往这个面板里加
+                    }
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun PlusButton(selected: Boolean, onClick: () -> Unit) {
+    val bgMod = if (selected) Modifier.background(LocalContentColor.current, RoundedCornerShape(14.dp)) else Modifier
+    IconButton(onClick = onClick, modifier = bgMod) {
+        val tint = if (selected) contentColorFor(LocalContentColor.current) else LocalContentColor.current
+        Icon(Icons.Default.Add, tint = tint, modifier = Modifier.padding(6.dp).size(28.dp), contentDescription = "更多")
+    }
+}
+
+@Composable
+private fun PlusPanelItem(icon: Painter, label: String, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.clickable(onClick = onClick)) {
+        Surface(shape = RoundedCornerShape(14.dp), tonalElevation = 2.dp) {
+            Icon(icon, contentDescription = label, modifier = Modifier.padding(14.dp).size(26.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 12.sp)
     }
 }
 

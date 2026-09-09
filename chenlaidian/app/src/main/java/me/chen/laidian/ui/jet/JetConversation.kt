@@ -41,6 +41,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -220,7 +221,7 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
                 modifier = Modifier.clickable(onClick = onSearch).padding(horizontal = 10.dp, vertical = 16.dp).height(24.dp))
             Icon(Icons.Default.Phone, tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "打电话",
                 modifier = Modifier.clickable(onClick = onCall).padding(horizontal = 10.dp, vertical = 16.dp).height(24.dp))
-            Icon(painterResource(R.drawable.ic_info), tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "资料",
+            Icon(Icons.Default.Menu, tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "菜单",
                 modifier = Modifier.clickable(onClick = onInfo).padding(horizontal = 10.dp, vertical = 16.dp).height(24.dp))
         },
     )
@@ -291,17 +292,17 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
 
 @Composable
 private fun AvatarOrSpace(show: Boolean, borderColor: Color, isChen: Boolean, url: String, loader: ImageLoader) {
-    if (!show) { Spacer(Modifier.width(74.dp)); return }
+    if (!show) { Spacer(Modifier.width(54.dp)); return }
     Box(
-        Modifier.padding(horizontal = 16.dp).size(42.dp)
+        Modifier.padding(horizontal = 10.dp).size(34.dp)
             .border(1.5.dp, borderColor, CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape).clip(CircleShape)
             .background(if (isChen) MaterialTheme.colorScheme.surface else C.Orange),
         contentAlignment = Alignment.Center,
     ) {
         when {
-            isChen -> DotsAvatar(big = 12.dp, small = 8.dp, gap = 4.dp, box = 30.dp)
+            isChen -> DotsAvatar(big = 10.dp, small = 7.dp, gap = 3.dp, box = 24.dp)
             url.isNotBlank() -> AsyncImage(model = ChatClient.mediaUrl(url), imageLoader = loader, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            else -> Text("陈", color = Color.White, fontSize = 15.sp)
+            else -> Text("陈", color = Color.White, fontSize = 13.sp)
         }
     }
 }
@@ -310,7 +311,7 @@ private fun AvatarOrSpace(show: Boolean, borderColor: Color, isChen: Boolean, ur
 private fun AuthorNameTimestamp(name: String, time: String, isUserMe: Boolean, read: Boolean) {
     Row(horizontalArrangement = if (isUserMe) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.Bottom) {
         if (isUserMe) { TimeMini(time, read); Spacer(Modifier.width(8.dp)) }
-        Text(name, style = MaterialTheme.typography.titleMedium)
+        Text(name, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         if (!isUserMe) { Spacer(Modifier.width(8.dp)); Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
     Spacer(Modifier.height(4.dp))
@@ -349,7 +350,8 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
     val bg = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (isUserMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     val shape = if (isUserMe) MeBubbleShape else ChenBubbleShape
-    val maxW = (LocalConfiguration.current.screenWidthDp * 0.78f).dp
+    // 0.19 她的规矩：气泡最远不越过对面头像那条线（两侧头像列各 54dp + 8dp 余量）
+    val maxW = (LocalConfiguration.current.screenWidthDp - 116).dp
     Column(horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
         Box {
             Surface(color = bg, shape = shape, modifier = Modifier.widthIn(max = maxW).combinedClickable(onClick = {}, onLongClick = { menu = true })) {
@@ -401,8 +403,8 @@ private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color) {
     val styled = messageFormatter(text = text, primary = isUserMe)
     ClickableText(
         text = styled,
-        style = MaterialTheme.typography.bodyLarge.copy(color = color),
-        modifier = Modifier.padding(16.dp),
+        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 20.sp, color = color),
+        modifier = Modifier.padding(12.dp),
         onClick = { off ->
             styled.getStringAnnotations(start = off, end = off).firstOrNull()?.let { a ->
                 if (a.tag == SymbolAnnotationType.LINK.name) uriHandler.openUri(a.item)
