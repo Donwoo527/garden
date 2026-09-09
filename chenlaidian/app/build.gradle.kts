@@ -11,8 +11,8 @@ android {
         applicationId = "me.chen.laidian"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "0.15-m5"
+        versionCode = 16
+        versionName = "0.16-m5"
         // 真 token 在 GitHub Actions 的 secret 里注入；本地/无 secret 时是 dev（连不上，但能编译）
         buildConfigField("String", "WS_TOKEN", "\"${System.getenv("CHEN_WS_TOKEN") ?: "dev"}\"")
         buildConfigField("String", "SERVER_HOST", "\"45.76.170.242\"")
@@ -50,5 +50,7 @@ dependencies {
 
     // 终端：Termux 的终端模拟器（纯 Java 的 VT 解析 + 屏幕缓冲），渲染我们自己用 Canvas 画
     implementation("com.termux.termux-app:terminal-emulator:0.118.0")
-    implementation("com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava")
+    // 0.16: 9999.0-empty 是"树里已有完整guava"时用的空壳，本项目没有guava，
+    // 空壳把 ListenableFuture 挤出 APK → profileinstaller 启动几秒后 NoClassDefFound 闪退(0.13起)
+    implementation("com.google.guava:listenablefuture:1.0")
 }
