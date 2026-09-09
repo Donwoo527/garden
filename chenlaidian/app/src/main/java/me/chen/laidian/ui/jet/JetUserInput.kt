@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -25,6 +26,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -80,39 +82,42 @@ fun JetUserInput(
 
     Surface(tonalElevation = 2.dp, contentColor = MaterialTheme.colorScheme.secondary) {
         Column(modifier) {
-            Row(Modifier.fillMaxWidth().height(56.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f).fillMaxSize()) {
-                    BasicTextField(
-                        value = textState,
-                        onValueChange = { textState = it; onTyping(it.text.isNotEmpty()) },
-                        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, end = 12.dp).align(Alignment.CenterStart)
-                            .onFocusChanged { st -> if (st.isFocused) { selector = InputSelector.NONE; resetScroll() }; focused = st.isFocused },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions { send() },
-                        maxLines = 4,
-                        cursorBrush = SolidColor(LocalContentColor.current),
-                        textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
-                    )
-                    if (textState.text.isEmpty() && !focused) {
-                        Text("说点什么…", modifier = Modifier.align(Alignment.CenterStart).padding(start = 24.dp),
-                            style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
-                    }
-                }
-            }
-            Row(Modifier.height(64.dp).padding(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                // 0.19 她的规矩：➕收纳附件(相册等以后都进这)，表情单独留外面；电话键删了(顶栏有)
+            // 0.20 按她设计稿的一行式：➕ | 圆角输入条(表情在右内) | 圆形⬆发送
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
                 PlusButton(selected = selector == InputSelector.PLUS,
                     onClick = { selector = if (selector == InputSelector.PLUS) InputSelector.NONE else InputSelector.PLUS })
-                SelectorButton(onClick = { selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI },
-                    icon = painterResource(R.drawable.ic_mood), selected = selector == InputSelector.EMOJI, description = "表情")
-                Spacer(Modifier.weight(1f))
+                Surface(shape = RoundedCornerShape(22.dp), tonalElevation = 1.dp,
+                    color = MaterialTheme.colorScheme.surface, modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Box(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)) {
+                            BasicTextField(
+                                value = textState,
+                                onValueChange = { textState = it; onTyping(it.text.isNotEmpty()) },
+                                modifier = Modifier.fillMaxWidth()
+                                    .onFocusChanged { st -> if (st.isFocused) { selector = InputSelector.NONE; resetScroll() }; focused = st.isFocused },
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                                keyboardActions = KeyboardActions { send() },
+                                maxLines = 4,
+                                cursorBrush = SolidColor(LocalContentColor.current),
+                                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                            )
+                            if (textState.text.isEmpty() && !focused) {
+                                Text("说点什么…", style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
+                            }
+                        }
+                        SelectorButton(onClick = { selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI },
+                            icon = painterResource(R.drawable.ic_mood), selected = selector == InputSelector.EMOJI, description = "表情")
+                    }
+                }
                 val enabled = textState.text.isNotBlank()
-                Button(
-                    modifier = Modifier.height(36.dp), enabled = enabled, onClick = { send(); dismiss() },
-                    colors = ButtonDefaults.buttonColors(disabledContainerColor = Color.Transparent, disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)),
-                    border = if (!enabled) BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)) else null,
-                    contentPadding = PaddingValues(0.dp),
-                ) { Text("发送", Modifier.padding(horizontal = 16.dp)) }
+                IconButton(
+                    onClick = { send(); dismiss() }, enabled = enabled,
+                    modifier = Modifier.size(42.dp).background(
+                        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), CircleShape)
+                ) {
+                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "发送",
+                        tint = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                }
             }
             if (selector == InputSelector.EMOJI) {
                 Surface(tonalElevation = 8.dp) {

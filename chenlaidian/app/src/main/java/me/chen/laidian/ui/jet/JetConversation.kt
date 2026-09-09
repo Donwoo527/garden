@@ -280,11 +280,11 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
     Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = if (isUserMe) Arrangement.End else Arrangement.Start) {
         if (!isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
         Column(Modifier.weight(1f, fill = false).padding(if (isUserMe) 0.dp else 0.dp), horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
-            if (isLastMessageByAuthor) AuthorNameTimestamp(if (isUserMe) "小陈" else "辰", m.timeLabel(), isUserMe, read)
+            // 0.20 按她设计稿：不显示昵称行(头像已区分人)，时间挪到气泡下方小字
             if (!isUserMe && !m.thinking.isNullOrBlank()) ThinkingFold(m.thinking)
             ChatItemBubble(m, quoted, isUserMe, loader, onQuote, onFav, onCopy)
-            if (!isLastMessageByAuthor && isUserMe) TimeMini(m.timeLabel(), read)
-            Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 4.dp))
+            TimeUnder(m.timeLabel(), isUserMe, read)
+            Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 2.dp))
         }
         if (isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = false, url = avatarXiaochen, loader = loader)
     }
@@ -323,6 +323,18 @@ private fun TimeMini(time: String, read: Boolean) {
         Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(4.dp))
         Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else C.Grey)
+    }
+}
+
+/** 0.20 设计稿位置：时间贴在气泡正下方，她的消息带已读双勾 */
+@Composable
+private fun TimeUnder(time: String, isUserMe: Boolean, read: Boolean) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+        Text(time, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (isUserMe) {
+            Spacer(Modifier.width(4.dp))
+            Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else C.Grey)
+        }
     }
 }
 
