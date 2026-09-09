@@ -23,6 +23,7 @@ class ChenApp : Application() {
             previous?.uncaughtException(t, e)
         }
         if (file.exists()) {
+            AppState.safeMode = true
             val text = file.readText().take(3000)
             Thread {
                 val ok = me.chen.laidian.net.ChatApi.reportCrash(applicationContext, text)
