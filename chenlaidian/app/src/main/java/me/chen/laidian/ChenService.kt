@@ -117,10 +117,13 @@ class ChenService : Service() {
         }
         running = true
         connect()
+        KeepAliveReceiver.schedule(this)
         return START_STICKY
     }
 
     override fun onDestroy() {
+        // 被系统杀了也让闹钟把我们拉回来（ACTION_STOP 主动下线的路径里 running 早已置 false）
+        if (running) KeepAliveReceiver.schedule(this)
         running = false
         if (inCall) endCall("已挂断")
         handler.removeCallbacksAndMessages(null)
