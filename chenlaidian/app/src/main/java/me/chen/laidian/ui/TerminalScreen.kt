@@ -59,6 +59,7 @@ private const val ESC = "\u001b"
 private const val CTRL_C = "\u0003"
 private const val CTRL_D = "\u0004"
 private const val BACKSPACE = "\u007f"
+private const val CTRL_B = "\u0002"   // tmux prefix
 
 // 逻辑列数固定 80：手机只"看"，不把共享 tmux 窗口挤成手机的窄尺寸。
 // (0909 教训：跟随屏宽上报 48 列 → 窗口被挤 → 80 列画的历史全被硬折成碎行)
@@ -104,6 +105,8 @@ fun TerminalScreen() {
             Key("Esc", ESC); Key("Tab", "\t"); Key("^C", CTRL_C); Key("^D", CTRL_D)
             Key("↑", ESC + "[A"); Key("↓", ESC + "[B"); Key("←", ESC + "[D"); Key("→", ESC + "[C")
             Key("⌫", BACKSPACE); Key("⏎", "\r"); Key("/", "/"); Key("-", "-")
+            // 翻页 = tmux copy-mode(C-b [)；⇞⇟ 整页翻，⇟到底自动退回实时；↑↓ 在翻页模式里逐行
+            Key("翻页", CTRL_B + "["); Key("⇞", ESC + "[5~"); Key("⇟", ESC + "[6~")
         }
         Box(
             Modifier.weight(1f).fillMaxWidth().padding(horizontal = 4.dp)
