@@ -44,6 +44,7 @@ class ChenService : Service() {
 
         val status = MutableLiveData("未启动")
         val lastText = MutableLiveData("")
+        @Volatile var callStartTs = 0L   // 0.34 通话开始时间(悬浮小窗计时用)
         /** 空闲 / 响铃中 / 通话中 / 已挂断 */
         val callState = MutableLiveData("空闲")
         val speakerOn = MutableLiveData(false)
@@ -274,6 +275,7 @@ class ChenService : Service() {
             )
         }
         inCall = true
+        callStartTs = System.currentTimeMillis()   // 0.34 悬浮小窗的时长起点
         callState.postValue("通话中")
         speakerOn.postValue(false)
         audio.startCall()
@@ -292,5 +294,7 @@ class ChenService : Service() {
             }
         }
         callState.postValue(finalState)
+        callStartTs = 0L
+        android.os.Handler(mainLooper).post { FloatCall.hide() }   // 0.34 通话结束小窗必须消失(Activity不在时兜底)
     }
 }

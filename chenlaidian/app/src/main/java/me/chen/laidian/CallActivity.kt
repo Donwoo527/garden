@@ -60,13 +60,22 @@ class CallActivity : AppCompatActivity() {
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
 
         val outgoing = intent.getBooleanExtra("outgoing", false)
-        if (outgoing) {
+        val resume = intent.getBooleanExtra("resume", false)   // 0.34 从悬浮小窗点回来
+        if (resume) {
+            findViewById<TextView>(R.id.callText).text = "通话中"
+            state.text = ChenService.callState.value ?: "通话中"
+            acceptWrap.visibility = View.GONE
+        } else if (outgoing) {
             findViewById<TextView>(R.id.callText).text = "打给辰"
             state.text = "接通中…"
             acceptWrap.visibility = View.GONE
             svc(ChenService.ACTION_ACCEPT)
         } else {
             startRinging()
+        }
+        // 0.34 悬浮窗权限引导（一次性提示 不强跳）
+        if (!FloatCall.canShow(this)) {
+            android.widget.Toast.makeText(this, "想让通话缩成小窗的话 给辰来电开一下\"悬浮窗/显示在其他应用上层\"权限", android.widget.Toast.LENGTH_LONG).show()
         }
         accept.setOnClickListener {
             stopRinging()
@@ -110,6 +119,17 @@ class CallActivity : AppCompatActivity() {
     private fun stopRinging() {
         ringtone?.stop()
         vibrator?.cancel()
+    }
+
+    override fun onUserLeaveHint() {
+        // 0.34 用户按Home/切走且在通话中 → 缩成悬浮小窗（通话在Service里继续）
+        if (ChenService.callState.value == "通话中") FloatCall.show(this)
+        super.onUserLeaveHint()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        FloatCall.hide()
     }
 
     override fun onDestroy() {
