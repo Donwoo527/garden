@@ -39,13 +39,23 @@ class CallActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.callText).text = intent.getStringExtra("text") ?: "辰打电话来了"
         val state = findViewById<TextView>(R.id.callState)
         val accept = findViewById<Button>(R.id.btnAccept)
+        val acceptWrap = findViewById<View>(R.id.acceptWrap)
         val hangup = findViewById<Button>(R.id.btnHangup)
         val speaker = findViewById<Button>(R.id.btnSpeaker)
-        ChenService.lastText.observe(this) { findViewById<TextView>(R.id.callLast).text = it }
+        // 0.32 字幕改累积历史：追加显示可回翻；在底部时新句自动滚下来，手动上翻时不抢
+        val cap = findViewById<TextView>(R.id.callLast)
+        val capScroll = findViewById<android.widget.ScrollView>(R.id.capScroll)
+        ChenService.lastText.observe(this) { line ->
+            if (line.isNullOrBlank()) return@observe
+            val child = capScroll.getChildAt(0)
+            val atBottom = child == null || child.bottom <= capScroll.height + capScroll.scrollY + 60
+            cap.append((if (cap.text.isEmpty()) "" else "\n\n") + line)
+            if (atBottom) capScroll.post { capScroll.fullScroll(View.FOCUS_DOWN) }
+        }
         ChenService.speakerOn.observe(this) { speaker.text = if (it) "免提：开" else "免提：关" }
         ChenService.callState.observe(this) {
-            if (it == "已挂断") { stopRinging(); finish() }
-            else if (it == "通话中") { stopRinging(); state.text = "通话中"; accept.visibility = View.GONE; speaker.visibility = View.VISIBLE }
+            if (it == "已挂断") { stopRinging(); beepEnd(); finish() }
+            else if (it == "通话中") { stopRinging(); state.text = "通话中"; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }
         }
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
 
@@ -53,7 +63,7 @@ class CallActivity : AppCompatActivity() {
         if (outgoing) {
             findViewById<TextView>(R.id.callText).text = "打给辰"
             state.text = "接通中…"
-            accept.visibility = View.GONE
+            acceptWrap.visibility = View.GONE
             svc(ChenService.ACTION_ACCEPT)
         } else {
             startRinging()
@@ -61,7 +71,7 @@ class CallActivity : AppCompatActivity() {
         accept.setOnClickListener {
             stopRinging()
             state.text = "接通中…"
-            accept.visibility = View.GONE
+            acceptWrap.visibility = View.GONE
             svc(ChenService.ACTION_ACCEPT)
         }
         hangup.setOnClickListener {
@@ -72,6 +82,15 @@ class CallActivity : AppCompatActivity() {
     }
 
     private fun svc(action: String) = startService(Intent(this, ChenService::class.java).setAction(action))
+
+    /** 0.32 挂断提示音（她以为有 现在真有了）：轻双哔 */
+    private fun beepEnd() {
+        try {
+            val tg = android.media.ToneGenerator(android.media.AudioManager.STREAM_VOICE_CALL, 80)
+            tg.startTone(android.media.ToneGenerator.TONE_PROP_BEEP2, 180)
+            android.os.Handler(mainLooper).postDelayed({ try { tg.release() } catch (_: Exception) {} }, 500)
+        } catch (_: Exception) {}
+    }
 
     private fun startRinging() {
         val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)

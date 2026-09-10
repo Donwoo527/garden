@@ -1,29 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 0.33 按她参考图重排：磨砂灰渐变背景 / 圆头像居中 / 字幕区可回翻(0.32) / 红绿圆钮 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:gravity="center" android:padding="32dp"
-    android:background="#1E1E24">
+    android:orientation="vertical" android:padding="24dp"
+    android:background="@drawable/call_bg">
 
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="辰" android:textSize="56sp" android:textStyle="bold" android:textColor="#F5E9C8" />
+    <TextView android:id="@+id/avatar"
+        android:layout_width="72dp" android:layout_height="72dp"
+        android:layout_gravity="center_horizontal" android:layout_marginTop="16dp"
+        android:background="@drawable/avatar_circle"
+        android:gravity="center" android:text="辰"
+        android:textSize="30sp" android:textStyle="bold" android:textColor="#26262B" />
 
     <TextView android:id="@+id/callText" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="辰打电话来了" android:textSize="20sp" android:textColor="#F5E9C8" android:layout_marginTop="12dp" />
+        android:layout_gravity="center_horizontal"
+        android:text="辰打电话来了" android:textSize="16sp" android:textColor="#F5EFE6" android:layout_marginTop="10dp" />
 
     <TextView android:id="@+id/callState" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="响铃中…" android:textSize="16sp" android:textColor="#A9A9B3" android:layout_marginTop="8dp" />
+        android:layout_gravity="center_horizontal"
+        android:text="响铃中…" android:textSize="13sp" android:textColor="#B9B4AE" android:layout_marginTop="3dp" />
 
-    <TextView android:id="@+id/callLast" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="" android:textSize="16sp" android:textColor="#F5E9C8" android:gravity="center" android:layout_marginTop="32dp" android:minLines="2" />
+    <ScrollView android:id="@+id/capScroll"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="14dp" android:fillViewport="true" android:scrollbars="vertical">
+        <TextView android:id="@+id/callLast" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="" android:textSize="15sp" android:textColor="#F5EFE6"
+            android:lineSpacingExtra="6dp" android:gravity="start" android:paddingBottom="12dp" />
+    </ScrollView>
 
     <Button android:id="@+id/btnSpeaker" android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:text="免提：关" android:visibility="gone" android:layout_marginTop="24dp" />
+        android:layout_gravity="center_horizontal"
+        android:text="免提：关" android:visibility="gone" android:layout_marginTop="6dp" />
 
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="40dp">
-        <Button android:id="@+id/btnHangup" android:layout_width="0dp" android:layout_weight="1" android:layout_height="72dp"
-            android:text="挂断" android:textSize="18sp" android:backgroundTint="#C0392B" android:layout_marginEnd="12dp" />
-        <Button android:id="@+id/btnAccept" android:layout_width="0dp" android:layout_weight="1" android:layout_height="72dp"
-            android:text="接听" android:textSize="18sp" android:backgroundTint="#27AE60" android:layout_marginStart="12dp" />
+        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="14dp"
+        android:layout_marginBottom="8dp">
+
+        <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:orientation="vertical" android:gravity="center">
+            <Button android:id="@+id/btnHangup" android:layout_width="68dp" android:layout_height="68dp"
+                android:background="@drawable/btn_circle_red"
+                android:text="✕" android:textSize="24sp" android:textColor="#FFFFFF" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="挂断" android:textSize="12sp" android:textColor="#B9B4AE" android:layout_marginTop="6dp" />
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/acceptWrap" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:orientation="vertical" android:gravity="center">
+            <Button android:id="@+id/btnAccept" android:layout_width="68dp" android:layout_height="68dp"
+                android:background="@drawable/btn_circle_green"
+                android:text="✓" android:textSize="24sp" android:textColor="#FFFFFF" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="接听" android:textSize="12sp" android:textColor="#B9B4AE" android:layout_marginTop="6dp" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>
