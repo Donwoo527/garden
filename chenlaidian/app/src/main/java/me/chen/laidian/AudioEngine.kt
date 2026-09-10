@@ -198,7 +198,9 @@ class AudioEngine(
             val mp = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        // 0.30 改走媒体路由：VOICE_COMMUNICATION 蓝牙要SCO才通(没做) 耳机里没声
+                        // MEDIA 走A2DP 蓝牙耳机自动接 音质还更好(0910地铁实测她全程听不到才挖出来)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
