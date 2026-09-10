@@ -68,6 +68,8 @@ enum class InputSelector { NONE, EMOJI, PLUS }
 /** 输入栏（照 Jetchat）：文本框 + 表情/图片/电话 三个选择器 + 发送。表情面板内置。 */
 @Composable
 fun JetUserInput(
+    insertText: String? = null,
+    onInsertConsumed: () -> Unit = {},
     onMessageSent: (String) -> Unit,
     onTyping: (Boolean) -> Unit,
     onPickImages: () -> Unit,
@@ -80,6 +82,14 @@ fun JetUserInput(
     if (selector != InputSelector.NONE) BackHandler(onBack = dismiss)
     var textState by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var focused by remember { mutableStateOf(false) }
+    // 0.36 转发:外部塞文本进输入框(她的用例:把我的原话拿去发我)
+    androidx.compose.runtime.LaunchedEffect(insertText) {
+        if (insertText != null) {
+            val t = textState.text + insertText
+            textState = TextFieldValue(t, TextRange(t.length))
+            onInsertConsumed()
+        }
+    }
     val send = {
         val t = textState.text.trim()
         if (t.isNotEmpty()) { onMessageSent(t); textState = TextFieldValue(); onTyping(false); resetScroll() }

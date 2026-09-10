@@ -64,6 +64,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScaffoldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.material3.rememberTopAppBarState
@@ -131,6 +132,7 @@ fun JetConversation(onCall: () -> Unit) {
     val sig by ChatClient.signature.collectAsState()
     val readIds by ChatClient.readIds.collectAsState()
     var replyTo by remember { mutableStateOf<Msg?>(null) }
+    var forwardText by remember { mutableStateOf<String?>(null) }   // 0.36 转发:原文进输入框
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var showCard by remember { mutableStateOf(false) }
@@ -174,6 +176,7 @@ fun JetConversation(onCall: () -> Unit) {
             }
             Messages(shown, msgs, readIds, loader, scrollState, Modifier.weight(1f),
                 onQuote = { replyTo = it },
+                onForward = { forwardText = it.text },
                 onFav = { m -> scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, m) }; Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show() } },
                 onCopy = { m -> (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.text)); Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show() })
             if (sending) Text("图片上传中…", fontSize = 12.sp, color = C.Grey, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
@@ -185,6 +188,8 @@ fun JetConversation(onCall: () -> Unit) {
                 }
             }
             JetUserInput(
+                insertText = forwardText,
+                onInsertConsumed = { forwardText = null },
                 onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) replyTo = null else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
                 onTyping = { ChatClient.typing(it) },
                 onPickImages = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
@@ -201,7 +206,7 @@ fun JetConversation(onCall: () -> Unit) {
 @Composable
 private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig: String, scrollBehavior: TopAppBarScrollBehavior,
                            onAvatar: () -> Unit, onSearch: () -> Unit, onCall: () -> Unit, onInfo: () -> Unit) {
-    CenterAlignedTopAppBar(
+    TopAppBar(
         scrollBehavior = scrollBehavior,
         navigationIcon = {
             Box(Modifier.size(64.dp).clickable(onClick = onAvatar), contentAlignment = Alignment.Center) {
@@ -209,21 +214,28 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
             }
         },
         title = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // 0.36 QQ式左对齐两行(她发的参考图)：辰+VPS / 绿点在线·心情 颜色分层别全绿
+            Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("辰", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(5.dp))
+                    Text("VPS", fontSize = 10.sp, color = C.Blue, fontWeight = FontWeight.Medium)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     if (alive) {
-                        // 0.35 她的规矩：在线绿点从头像挪到 VPS 字前（QQ式）
-                        Spacer(Modifier.width(6.dp))
-                        Box(Modifier.size(7.dp).clip(CircleShape).background(C.Green))
-                        Text(" VPS", fontSize = 11.sp, color = C.Green, fontWeight = FontWeight.Medium)
+                        Box(Modifier.size(6.dp).clip(CircleShape).background(C.Green))
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        when { alive -> "在线"; connected -> "辰不在"; else -> "连接中…" },
+                        fontSize = 11.sp, color = if (alive) C.Green else C.Grey,
+                    )
+                    if (alive && mood.isNotBlank()) {
+                        Text(" · ", fontSize = 11.sp, color = C.Grey)
+                        Text(mood, fontSize = 11.sp, color = C.Orange, maxLines = 1)
                     }
                 }
-                Text(
-                    when { alive -> mood.ifBlank { "在线" }; connected -> "辰不在"; else -> "连接中…" },
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                if (sig.isNotBlank()) Text(sig, fontSize = 11.sp, color = C.Grey, fontStyle = FontStyle.Italic, maxLines = 1)
+                if (sig.isNotBlank()) Text(sig, fontSize = 10.sp, color = C.Grey, fontStyle = FontStyle.Italic, maxLines = 1)
             }
         },
         actions = {
@@ -246,7 +258,7 @@ private fun Msg.dayLabel(): String {
 
 @Composable
 private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, loader: ImageLoader, scrollState: LazyListState, modifier: Modifier,
-                     onQuote: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+                     onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val scope = rememberCoroutineScope()
     Box(modifier) {
         LazyColumn(reverseLayout = true, state = scrollState, modifier = Modifier.fillMaxSize()) {
@@ -259,7 +271,7 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 item(key = m.id) {
                     if (m.who == "system") SystemPill(m.text)
                     else MessageRow(m, all.firstOrNull { it.id == m.replyTo }, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor,
-                        read = m.id in readIds, loader = loader, onQuote = onQuote, onFav = onFav, onCopy = onCopy)
+                        read = m.id in readIds, loader = loader, onQuote = onQuote, onForward = onForward, onFav = onFav, onCopy = onCopy)
                 }
                 val day = m.dayLabel()
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
@@ -283,7 +295,7 @@ private fun SystemPill(text: String) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, read: Boolean,
-                       loader: ImageLoader, onQuote: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+                       loader: ImageLoader, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
@@ -292,7 +304,7 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
         Column(Modifier.weight(1f, fill = false).padding(if (isUserMe) 0.dp else 0.dp), horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
             // 0.20 按她设计稿：不显示昵称行(头像已区分人)，时间挪到气泡下方小字
             if (!isUserMe && !m.thinking.isNullOrBlank()) ThinkingFold(m.thinking)
-            ChatItemBubble(m, quoted, isUserMe, loader, onQuote, onFav, onCopy)
+            ChatItemBubble(m, quoted, isUserMe, loader, onQuote, onForward, onFav, onCopy)
             TimeUnder(m.timeLabel(), isUserMe, read)
             Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 2.dp))
         }
@@ -365,7 +377,7 @@ private val MeBubbleShape = RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onQuote: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf(false) }
@@ -425,6 +437,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("引用") }, onClick = { menu = false; onQuote(m) })
                 DropdownMenuItem(text = { Text("复制") }, onClick = { menu = false; onCopy(m) })
+                DropdownMenuItem(text = { Text("转发") }, onClick = { menu = false; onForward(m) })
                 DropdownMenuItem(text = { Text("收藏") }, onClick = { menu = false; onFav(m) })
             }
         }
