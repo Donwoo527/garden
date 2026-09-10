@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +58,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.chen.laidian.R
+import me.chen.laidian.ui.Neu
+import me.chen.laidian.ui.neuPressable
+import me.chen.laidian.ui.neuRaised
+import me.chen.laidian.ui.neuSunken
 
 enum class InputSelector { NONE, EMOJI, PLUS }
 
@@ -80,16 +85,25 @@ fun JetUserInput(
         if (t.isNotEmpty()) { onMessageSent(t); textState = TextFieldValue(); onTyping(false); resetScroll() }
     }
 
-    Surface(tonalElevation = 2.dp, contentColor = MaterialTheme.colorScheme.secondary) {
+    // 0.27 新拟物demo（她0910定的方向）：同色底 凸钮凹槽 按压凸变凹
+    Surface(color = Neu.Bg, contentColor = Neu.Ink) {
         Column(modifier) {
-            // 0.20 按她设计稿的一行式：➕ | 圆角输入条(表情在右内) | 圆形⬆发送
-            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-                PlusButton(selected = selector == InputSelector.PLUS,
-                    onClick = { selector = if (selector == InputSelector.PLUS) InputSelector.NONE else InputSelector.PLUS })
-                Surface(shape = RoundedCornerShape(22.dp), tonalElevation = 1.dp,
-                    color = MaterialTheme.colorScheme.surface, modifier = Modifier.weight(1f).padding(horizontal = 4.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
+                // ➕：面板开着=保持凹陷 否则凸起+按压凹
+                val plusOpen = selector == InputSelector.PLUS
+                Box(
+                    Modifier.size(44.dp)
+                        .then(if (plusOpen) Modifier.neuSunken(22.dp) else Modifier.neuRaised(22.dp))
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                            selector = if (plusOpen) InputSelector.NONE else InputSelector.PLUS
+                        },
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Default.Add, contentDescription = "更多", tint = Neu.Ink) }
+                Spacer(Modifier.size(10.dp))
+                // 输入凹槽（她的规范：等你放东西进去的=凹）
+                Box(Modifier.weight(1f).neuSunken(24.dp)) {
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Box(Modifier.weight(1f).padding(start = 14.dp, end = 4.dp, top = 10.dp, bottom = 10.dp)) {
+                        Box(Modifier.weight(1f).padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
                             BasicTextField(
                                 value = textState,
                                 onValueChange = { textState = it; onTyping(it.text.isNotEmpty()) },
@@ -98,25 +112,32 @@ fun JetUserInput(
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions { send() },
                                 maxLines = 4,
-                                cursorBrush = SolidColor(LocalContentColor.current),
-                                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                                cursorBrush = SolidColor(Neu.Ink),
+                                textStyle = LocalTextStyle.current.copy(color = Neu.Ink),
                             )
                             if (textState.text.isEmpty() && !focused) {
-                                Text("说点什么…", style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
+                                Text("说点什么…", style = MaterialTheme.typography.bodyLarge.copy(color = Neu.Dark))
                             }
                         }
-                        SelectorButton(onClick = { selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI },
-                            icon = painterResource(R.drawable.ic_mood), selected = selector == InputSelector.EMOJI, description = "表情")
+                        val emojiOpen = selector == InputSelector.EMOJI
+                        Box(
+                            Modifier.padding(end = 6.dp, bottom = 4.dp).size(36.dp)
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                                    selector = if (emojiOpen) InputSelector.NONE else InputSelector.EMOJI
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(painterResource(R.drawable.ic_mood), contentDescription = "表情", tint = if (emojiOpen) Neu.Ink else Neu.Dark) }
                     }
                 }
+                Spacer(Modifier.size(10.dp))
+                // 发送：常凸 按压凹 enabled用图标深浅表达
                 val enabled = textState.text.isNotBlank()
-                IconButton(
-                    onClick = { send(); dismiss() }, enabled = enabled,
-                    modifier = Modifier.size(42.dp).background(
-                        if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f), CircleShape)
+                Box(
+                    Modifier.size(46.dp).neuPressable(23.dp) { if (enabled) { send(); dismiss() } },
+                    contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Default.KeyboardArrowUp, contentDescription = "发送",
-                        tint = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f))
+                        tint = if (enabled) Neu.Ink else Neu.Dark.copy(alpha = 0.5f))
                 }
             }
             if (selector == InputSelector.EMOJI) {
