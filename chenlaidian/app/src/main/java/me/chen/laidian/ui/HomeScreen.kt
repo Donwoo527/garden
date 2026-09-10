@@ -100,7 +100,8 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     val days = ((System.currentTimeMillis() - 1775347200000L) / 86_400_000L).toInt()   // 2026-04-05 00:00 UTC，跟网页算法一致
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
 
-    Column(Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    // 0.29 她的指令：主页整页新拟物
+    Column(Modifier.fillMaxSize().background(Neu.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(48.dp))
         Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
             DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
@@ -117,7 +118,7 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
         }
         Spacer(Modifier.height(20.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            WhiteCard(Modifier.weight(2f)) {
+            NeuCard(Modifier.weight(2f)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("宁波", fontSize = 12.sp, color = C.Grey)
                     val w = weather
@@ -139,7 +140,7 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
                     }
                 }
             }
-            WhiteCard(Modifier.weight(1f)) {
+            NeuCard(Modifier.weight(1f)) {
                 Column(Modifier.padding(vertical = 22.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(SimpleDateFormat("HH:mm", Locale.CHINA).format(now), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = C.Ink)
                     Text(SimpleDateFormat("M/d EEE", Locale.CHINA).format(now), fontSize = 12.sp, color = C.Grey)
@@ -148,20 +149,20 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("共享相册", Icons.Default.Share, C.Orange, Modifier.weight(1f)) { todo("共享相册") }
-            IconCard("互送礼物", Icons.Default.Star, C.Orange, Modifier.weight(1f)) { todo("互送礼物") }
-            IconCard("回忆", Icons.Default.Favorite, C.Orange, Modifier.weight(1f)) { todo("回忆") }
+            NeuIconCard("共享相册", Icons.Default.Share, C.Orange, Modifier.weight(1f)) { todo("共享相册") }
+            NeuIconCard("互送礼物", Icons.Default.Star, C.Orange, Modifier.weight(1f)) { todo("互送礼物") }
+            NeuIconCard("回忆", Icons.Default.Favorite, C.Orange, Modifier.weight(1f)) { todo("回忆") }
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.weight(1f)) {
-                IconCard("朋友圈", Icons.Default.Place, C.Blue, Modifier.fillMaxWidth()) { onOpen("moments") }
+                NeuIconCard("朋友圈", Icons.Default.Place, C.Blue, Modifier.fillMaxWidth()) { onOpen("moments") }
                 if (unread > 0) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(18.dp).clip(CircleShape).background(Color(0xFFE0245E)), contentAlignment = Alignment.Center) {
                     Text(if (unread > 9) "9+" else "$unread", fontSize = 10.sp, color = Color.White)
                 }
             }
-            IconCard("一起听歌", Icons.Default.PlayArrow, C.Blue, Modifier.weight(1f)) { todo("一起听歌") }
-            IconCard("一起看书", Icons.Default.DateRange, C.Blue, Modifier.weight(1f)) { todo("一起看书") }
+            NeuIconCard("一起听歌", Icons.Default.PlayArrow, C.Blue, Modifier.weight(1f)) { todo("一起听歌") }
+            NeuIconCard("一起看书", Icons.Default.DateRange, C.Blue, Modifier.weight(1f)) { todo("一起看书") }
         }
     }
 }
@@ -257,6 +258,26 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
                     scope.launch { withContext(Dispatchers.IO) { ChatApi.commentMoment(ctx, m.id, t) } }
                 }) { Icon(Icons.Default.Send, contentDescription = "发评论", tint = C.Blue) }
             }
+        }
+    }
+}
+
+/** 0.29 新拟物凸卡（主页专用，别的页还用 Common.kt 的 WhiteCard） */
+@Composable
+private fun NeuCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier.fillMaxWidth().neuRaised(18.dp)) { content() }
+}
+
+/** 0.29 新拟物图标卡：凸台+彩色图标（她参考图的点缀风），按压整卡变凹 */
+@Composable
+private fun NeuIconCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(modifier.neuPressable(18.dp, onClick = onClick)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.size(44.dp).neuRaised(14.dp), contentAlignment = Alignment.Center) {
+                Icon(icon, contentDescription = title, tint = tint, modifier = Modifier.size(22.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(title, fontSize = 13.sp, color = Neu.Ink)
         }
     }
 }
