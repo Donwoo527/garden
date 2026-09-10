@@ -79,9 +79,14 @@ fun TerminalScreen() {
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) TermClient.poke()
+            // 0.40 退后台自动退 copy-mode：翻页忘了退也不会把共享画面冻一夜（0910 教训）
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) TermClient.exitCopyMode()
         }
         lifecycleOwner.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(obs)
+            TermClient.exitCopyMode()   // 切到别的 tab 也算离场
+        }
     }
     // zoom=1 → 80列正好铺满屏宽；只影响本机渲染，不改服务器窗口
     var zoom by remember { mutableFloatStateOf(1f) }

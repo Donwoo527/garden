@@ -103,6 +103,10 @@ object TermClient : TerminalOutput() {
         if (!alive) { ws = null; connect() }
     }
 
+    /** 0.40 离开终端页/退后台时调用：copy-mode 是共享 pane 的状态，一人定格全端冻屏
+     *  (0910 一夜冻屏教训)。服务端只在真挂着 copy-mode 时才 cancel，旧服务端会忽略此消息。 */
+    fun exitCopyMode() { if (mode != "shell") ws?.send(JSONObject().put("exit_copy", 1).toString()) }
+
     fun disconnect() { wantConnected = false; ws?.close(1000, "bye"); ws = null; status.value = "已断开" }
 
     private fun modeLabel() = if (mode == "shell") "shell" else "辰的session"
