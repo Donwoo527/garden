@@ -95,7 +95,7 @@ fun JetUserInput(
                     Modifier.size(44.dp)
                         .then(if (plusOpen) Modifier.neuSunken(22.dp) else Modifier.neuRaised(22.dp))
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                            selector = if (plusOpen) InputSelector.NONE else InputSelector.PLUS
+                            selector = if (selector == InputSelector.PLUS) InputSelector.NONE else InputSelector.PLUS
                         },
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Default.Add, contentDescription = "更多", tint = Neu.Ink) }
@@ -123,7 +123,8 @@ fun JetUserInput(
                         Box(
                             Modifier.padding(end = 6.dp, bottom = 4.dp).size(36.dp)
                                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                                    selector = if (emojiOpen) InputSelector.NONE else InputSelector.EMOJI
+                                    // 0.35 读实时值 不靠组合快照(她报的表情面板收不起来)
+                                    selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI
                                 },
                             contentAlignment = Alignment.Center,
                         ) { Icon(painterResource(R.drawable.ic_mood), contentDescription = "表情", tint = if (emojiOpen) Neu.Ink else Neu.Dark) }

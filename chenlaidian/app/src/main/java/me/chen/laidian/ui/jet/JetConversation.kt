@@ -205,14 +205,19 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
         scrollBehavior = scrollBehavior,
         navigationIcon = {
             Box(Modifier.size(64.dp).clickable(onClick = onAvatar), contentAlignment = Alignment.Center) {
-                DotsAvatar(big = 14.dp, small = 9.dp, gap = 6.dp, online = alive, box = 36.dp)
+                DotsAvatar(big = 14.dp, small = 9.dp, gap = 6.dp, online = null, box = 36.dp)
             }
         },
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("辰", style = MaterialTheme.typography.titleMedium)
-                    if (alive) Text("  VPS", fontSize = 11.sp, color = C.Green, fontWeight = FontWeight.Medium)
+                    if (alive) {
+                        // 0.35 她的规矩：在线绿点从头像挪到 VPS 字前（QQ式）
+                        Spacer(Modifier.width(6.dp))
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(C.Green))
+                        Text(" VPS", fontSize = 11.sp, color = C.Green, fontWeight = FontWeight.Medium)
+                    }
                 }
                 Text(
                     when { alive -> mood.ifBlank { "在线" }; connected -> "辰不在"; else -> "连接中…" },

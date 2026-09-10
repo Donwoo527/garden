@@ -5,6 +5,9 @@
     android:orientation="vertical" android:padding="24dp"
     android:background="@drawable/call_bg">
 
+    <TextView android:id="@+id/btnMinimize" android:layout_width="44dp" android:layout_height="36dp"
+        android:text="⌄" android:textSize="24sp" android:textColor="#B9B4AE" android:gravity="center" />
+
     <TextView android:id="@+id/avatar"
         android:layout_width="72dp" android:layout_height="72dp"
         android:layout_gravity="center_horizontal" android:layout_marginTop="16dp"

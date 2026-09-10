@@ -34,6 +34,7 @@
 
         <activity
             android:name=".CallActivity"
+            android:theme="@style/Theme.Chen.CallTranslucent"
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true"

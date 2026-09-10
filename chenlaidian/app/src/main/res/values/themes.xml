@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.Chen" parent="Theme.Material3.DayNight.NoActionBar" />
+
+    <!-- 0.35 通话页毛玻璃：窗口半透明 背后内容可透出(配合代码里的blurBehind) -->
+    <style name="Theme.Chen.CallTranslucent" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
 </resources>

@@ -106,7 +106,7 @@ fun MainScreen() {
                     val sel = tab == i
                     Column(
                         Modifier.width(58.dp).height(50.dp)
-                            .then(if (sel) Modifier.neuSunken(18.dp) else Modifier)
+                            .then(if (sel) Modifier.neuSunken(25.dp) else Modifier)   // 0.35 凹坑改圆 跟胶囊外壳同族曲率
                             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { tab = i },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,

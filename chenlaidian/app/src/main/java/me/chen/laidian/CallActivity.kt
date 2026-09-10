@@ -33,6 +33,11 @@ class CallActivity : AppCompatActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 0.35 毛玻璃：半透明窗口+背后模糊(Android 12+) 低版本只半透明也能透出一点背景
+        if (Build.VERSION.SDK_INT >= 31) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            window.attributes = window.attributes.apply { blurBehindRadius = 64 }
+        }
         (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).requestDismissKeyguard(this, null)
 
         setContentView(R.layout.activity_call)
@@ -58,6 +63,8 @@ class CallActivity : AppCompatActivity() {
             else if (it == "通话中") { stopRinging(); state.text = "通话中"; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }
         }
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
+        // 0.35 她点名的可见缩小按钮：点了回上一页 通话不断 浮窗由onDestroy兜底弹出
+        findViewById<TextView>(R.id.btnMinimize).setOnClickListener { finish() }
 
         val outgoing = intent.getBooleanExtra("outgoing", false)
         val resume = intent.getBooleanExtra("resume", false)   // 0.34 从悬浮小窗点回来
@@ -134,6 +141,8 @@ class CallActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stopRinging()
+        // 0.35 浮窗全路径：无论返回键/缩小按钮/别的方式离开 只要还在通话 小方块都出来
+        if (ChenService.callState.value == "通话中") FloatCall.show(applicationContext)
         super.onDestroy()
     }
 }
