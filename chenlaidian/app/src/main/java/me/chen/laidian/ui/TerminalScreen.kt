@@ -132,12 +132,14 @@ fun TerminalScreen() {
                     val r = (viewH / rh0).toInt().coerceIn(20, 60)
                     TermClient.ensure(ctx, COLS, r)
                 }
-                val em = TermClient.emulator
-                if (em != null) {
-                    val canvasW = with(density) { (em.mColumns * charW).toDp() }
-                    val canvasH = with(density) { (em.mRows * rowH).toDp() }
+                // 0.23 尺寸用 TermClient.cols/rows 算（常量级），emulator 引用挪回绘制层——
+                // 组合层持有 emulator 会在 switchMode 换对象后画旧缓冲（画面死住）
+                if (TermClient.emulator != null) {
+                    val canvasW = with(density) { (TermClient.cols * charW).toDp() }
+                    val canvasH = with(density) { (TermClient.rows * rowH).toDp() }
                     Canvas(Modifier.size(canvasW, canvasH)) {
                         @Suppress("UNUSED_EXPRESSION") tick
+                        val em = TermClient.emulator ?: return@Canvas
                         val screen = em.screen
                         val colors = em.mColors.mCurrentColors
                         val defBg = colors[TextStyle.COLOR_INDEX_BACKGROUND]

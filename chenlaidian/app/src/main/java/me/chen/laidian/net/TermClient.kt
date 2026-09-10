@@ -42,6 +42,7 @@ object TermClient : TerminalOutput() {
     @Volatile private var ws: WebSocket? = null
     private var wantConnected = false
     private var appCtx: Context? = null
+    @Volatile private var gotData = false   // 0.23 本次连接是否收到过数据(区分真连上/假连上)
 
     private val sessionClient = object : TerminalSessionClient {
         override fun onTextChanged(changedSession: TerminalSession?) {}
@@ -92,7 +93,7 @@ object TermClient : TerminalOutput() {
         connect()
     }
 
-    fun reconnect() { ws?.close(1000, "reconnect"); ws = null; connect() }
+    fun reconnect() { wantConnected = true; ws?.close(1000, "reconnect"); ws = null; connect() }
 
     /** 0.22 回前台探活：熄屏冻结后连接常半死，OkHttp 的 ping 要等最多两个周期才发现。
      *  主动写一帧无害消息（服务端只认 resize，别的忽略）——写不进去 = 连接已死，立刻重连不等它。 */
@@ -112,12 +113,18 @@ object TermClient : TerminalOutput() {
         val c = client ?: Tls.client(ctx).also { client = it }
         status.value = "终端连接中…"
         val url = "wss://${BuildConfig.SERVER_HOST}:${BuildConfig.CHAT_PORT}/term?token=$TOKEN&mode=$mode&cols=$cols&rows=$rows"
+        gotData = false
         ws = c.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 webSocket.send(JSONObject().put("resize", JSONArray(listOf(cols, rows))).toString())
-                status.value = "${modeLabel()} · ${cols}×${rows}"
+                // 0.23 诚实状态栏：握手成功≠数据能通（被墙时握手能过数据全丢）。收到第一帧才算真连上
+                status.value = "已连接 等数据…"
+                main.postDelayed({
+                    if (ws === webSocket && !gotData) status.value = "⚠连上但收不到数据 可能被墙 检查VPN"
+                }, 5000)
             }
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                if (!gotData) { gotData = true; main.post { status.value = "${modeLabel()} · ${cols}×${rows}" } }
                 val arr = bytes.toByteArray()
                 main.post { emulator?.append(arr, arr.size); redraw.value = redraw.value + 1 }
             }
