@@ -64,6 +64,21 @@ object ChatApi {
 
     fun markMomentsRead(ctx: Context): Boolean = postJson(ctx, "/moments/read", JSONObject())
 
+    /** 0.38 收藏表情列表: [url] 新的在前 */
+    fun stickers(ctx: Context): List<String>? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/stickers").header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return null
+                val arr = JSONObject(r.body?.string() ?: return null).optJSONArray("items") ?: return emptyList()
+                (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("url")?.takeIf { u -> u.isNotBlank() } }.reversed()
+            }
+        } catch (e: Exception) { null }
+    }
+
+    /** 0.38 添加收藏表情 */
+    fun addSticker(ctx: Context, url: String): Boolean = postJson(ctx, "/stickers", JSONObject().put("url", url))
+
     /** 收藏一条消息（快照） */
     fun addFavorite(ctx: Context, m: me.chen.laidian.model.Msg): Boolean {
         val snap = JSONObject().put("id", m.id).put("who", m.who).put("type", m.msgType).put("text", m.text).put("ts", m.ts)

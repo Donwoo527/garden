@@ -191,6 +191,7 @@ fun JetConversation(onCall: () -> Unit) {
             JetUserInput(
                 insertText = forwardText,
                 onInsertConsumed = { forwardText = null },
+                onSendSticker = { url -> scope.launch { withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(url), "") } } },
                 onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) replyTo = null else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
                 onTyping = { ChatClient.typing(it) },
                 onPickImages = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },

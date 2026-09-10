@@ -1,6 +1,9 @@
 package me.chen.laidian.ui.jet
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -57,7 +60,20 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import me.chen.laidian.R
+import me.chen.laidian.Tls
+import me.chen.laidian.net.ChatApi
+import me.chen.laidian.net.ChatClient
+import me.chen.laidian.net.ImageUtil
 import me.chen.laidian.ui.Neu
 import me.chen.laidian.ui.neuPressable
 import me.chen.laidian.ui.neuRaised
@@ -70,6 +86,7 @@ enum class InputSelector { NONE, EMOJI, PLUS }
 fun JetUserInput(
     insertText: String? = null,
     onInsertConsumed: () -> Unit = {},
+    onSendSticker: (String) -> Unit = {},
     onMessageSent: (String) -> Unit,
     onTyping: (Boolean) -> Unit,
     onPickImages: () -> Unit,
@@ -152,12 +169,61 @@ fun JetUserInput(
                 }
             }
             if (selector == InputSelector.EMOJI) {
+                // 0.38 双tab：emoji + 她的收藏表情(微信同款 ➕自己传图 点了直接发)
+                var stickerTab by rememberSaveable { mutableStateOf(false) }
+                var stickers by remember { mutableStateOf<List<String>>(emptyList()) }
+                val ctx = LocalContext.current
+                val scope = rememberCoroutineScope()
+                val stickerLoader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
+                val stickerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                    if (uri != null) scope.launch {
+                        withContext(Dispatchers.IO) {
+                            ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }?.let { ChatApi.addSticker(ctx, it) }
+                        }
+                        withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
+                    }
+                }
+                LaunchedEffect(stickerTab) {
+                    if (stickerTab) withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
+                }
                 Surface(tonalElevation = 8.dp) {
-                    EmojiTable(onTextAdded = { e ->
-                        val t = textState.text.replaceRange(textState.selection.start, textState.selection.end, e)
-                        textState = TextFieldValue(t, TextRange(t.length))
-                        onTyping(true)
-                    }, modifier = Modifier.padding(8.dp).focusable())
+                    Column {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                            Text("😊", fontSize = 20.sp, modifier = Modifier.clickable { stickerTab = false }
+                                .background(if (!stickerTab) Neu.Dark.copy(alpha = 0.25f) else Color.Transparent, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 4.dp))
+                            Text("♡", fontSize = 20.sp, color = Neu.Ink, modifier = Modifier.clickable { stickerTab = true }
+                                .background(if (stickerTab) Neu.Dark.copy(alpha = 0.25f) else Color.Transparent, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 4.dp))
+                        }
+                        if (!stickerTab) {
+                            EmojiTable(onTextAdded = { e ->
+                                val t = textState.text.replaceRange(textState.selection.start, textState.selection.end, e)
+                                textState = TextFieldValue(t, TextRange(t.length))
+                                onTyping(true)
+                            }, modifier = Modifier.padding(8.dp).focusable())
+                        } else {
+                            Column(Modifier.fillMaxWidth().height(220.dp).verticalScroll(rememberScrollState()).padding(8.dp)) {
+                                (listOf<String?>(null) + stickers).chunked(4).forEach { row ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                        row.forEach { u ->
+                                            if (u == null) {
+                                                Box(Modifier.padding(4.dp).size(76.dp)
+                                                    .background(Neu.Dark.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                                                    .clickable { stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                                    contentAlignment = Alignment.Center) { Text("＋", fontSize = 26.sp, color = Neu.Ink) }
+                                            } else {
+                                                AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = stickerLoader, contentDescription = "表情",
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier = Modifier.padding(4.dp).size(76.dp)
+                                                        .background(Color.White, RoundedCornerShape(12.dp))
+                                                        .clickable { onSendSticker(u); dismiss() })
+                                            }
+                                        }
+                                        repeat(4 - row.size) { Spacer(Modifier.size(84.dp)) }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             if (selector == InputSelector.PLUS) {
