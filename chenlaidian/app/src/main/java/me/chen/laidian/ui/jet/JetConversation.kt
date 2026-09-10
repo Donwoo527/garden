@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -206,16 +207,16 @@ fun JetConversation(onCall: () -> Unit) {
 @Composable
 private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig: String, scrollBehavior: TopAppBarScrollBehavior,
                            onAvatar: () -> Unit, onSearch: () -> Unit, onCall: () -> Unit, onInfo: () -> Unit) {
-    TopAppBar(
-        scrollBehavior = scrollBehavior,
-        navigationIcon = {
-            Box(Modifier.size(64.dp).clickable(onClick = onAvatar), contentAlignment = Alignment.Center) {
-                DotsAvatar(big = 14.dp, small = 9.dp, gap = 6.dp, online = null, box = 36.dp)
+    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.size(52.dp).clickable(onClick = onAvatar), contentAlignment = Alignment.Center) {
+                DotsAvatar(big = 13.dp, small = 8.dp, gap = 5.dp, online = null, box = 34.dp)
             }
-        },
-        title = {
-            // 0.36 QQ式左对齐两行(她发的参考图)：辰+VPS / 绿点在线·心情 颜色分层别全绿
-            Column {
+            // 0.37 QQ式两行(她的参考图) 签名退役去资料卡
+            Column(Modifier.weight(1f).padding(start = 2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("辰", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.width(5.dp))
@@ -235,18 +236,15 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
                         Text(mood, fontSize = 11.sp, color = C.Orange, maxLines = 1)
                     }
                 }
-                if (sig.isNotBlank()) Text(sig, fontSize = 10.sp, color = C.Grey, fontStyle = FontStyle.Italic, maxLines = 1)
             }
-        },
-        actions = {
             Icon(painterResource(R.drawable.ic_search), tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "搜索",
-                modifier = Modifier.clickable(onClick = onSearch).padding(horizontal = 10.dp, vertical = 16.dp).height(24.dp))
+                modifier = Modifier.clickable(onClick = onSearch).padding(horizontal = 8.dp, vertical = 14.dp).height(22.dp))
             Icon(Icons.Default.Phone, tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "打电话",
-                modifier = Modifier.clickable(onClick = onCall).padding(horizontal = 10.dp, vertical = 16.dp).height(24.dp))
+                modifier = Modifier.clickable(onClick = onCall).padding(horizontal = 8.dp, vertical = 14.dp).height(22.dp))
             Icon(Icons.Default.Menu, tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "菜单",
-                modifier = Modifier.clickable(onClick = onInfo).padding(horizontal = 10.dp, vertical = 16.dp).height(24.dp))
-        },
-    )
+                modifier = Modifier.clickable(onClick = onInfo).padding(horizontal = 8.dp, vertical = 14.dp).height(22.dp))
+        }
+    }
 }
 
 private fun Msg.dayLabel(): String {
