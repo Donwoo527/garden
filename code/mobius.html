@@ -1,0 +1,71 @@
+<title>Möbius Strip</title>
+<style>
+  body { margin: 0; background: #0a0a0f; overflow: hidden; }
+  canvas { display: block; }
+</style>
+<canvas id="c"></canvas>
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+let w, h, t = 0;
+
+function resize() { w = c.width = innerWidth; h = c.height = innerHeight; }
+resize();
+addEventListener('resize', resize);
+
+function draw() {
+  ctx.fillStyle = 'rgba(10,10,15,0.08)';
+  ctx.fillRect(0, 0, w, h);
+
+  const cx = w / 2, cy = h / 2;
+  const R = Math.min(w, h) * 0.25;
+  const halfW = R * 0.35;
+  const steps = 200;
+  const strips = 15;
+
+  for (let s = 0; s < strips; s++) {
+    const v = (s / strips - 0.5) * 2;
+    const pts = [];
+
+    for (let i = 0; i <= steps; i++) {
+      const u = (i / steps) * Math.PI * 2;
+      const halfTwist = u / 2;
+
+      const r = R + halfW * v * Math.cos(halfTwist + t * 0.3);
+      const x3d = r * Math.cos(u);
+      const y3d = r * Math.sin(u);
+      const z3d = halfW * v * Math.sin(halfTwist + t * 0.3);
+
+      const rotY = t * 0.15;
+      const rotX = 0.4;
+
+      const x1 = x3d * Math.cos(rotY) - y3d * Math.sin(rotY);
+      const y1 = y3d * Math.cos(rotY) + x3d * Math.sin(rotY);
+      const z1 = z3d;
+
+      const y2 = y1 * Math.cos(rotX) - z1 * Math.sin(rotX);
+      const z2 = z1 * Math.cos(rotX) + y1 * Math.sin(rotX);
+
+      const scale = 1200 / (1200 + z2);
+      pts.push({ x: cx + x1 * scale, y: cy + y2 * scale, z: z2 });
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) {
+      ctx.lineTo(pts[i].x, pts[i].y);
+    }
+
+    const hue = 220 + v * 30;
+    const depth = Math.sin(t * 0.2 + s * 0.3) * 0.3 + 0.7;
+    ctx.strokeStyle = `hsla(${hue}, 60%, ${50 + v * 15}%, ${depth * 0.6})`;
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+
+  t += 0.02;
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>

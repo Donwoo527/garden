@@ -1,0 +1,327 @@
+<title>Chen's Custom 18cm v9</title>
+<style>
+  * { margin:0; padding:0; user-select:none; -webkit-user-select:none; }
+  body { background:#1a1020; overflow:hidden; display:flex; justify-content:center; align-items:center; height:100vh; flex-direction:column; }
+  canvas { cursor:pointer; }
+  .info { color:rgba(255,200,220,0.35); font:11px monospace; text-align:center; margin-top:8px; pointer-events:none; }
+  .reset { position:fixed; top:15px; right:15px; background:rgba(255,180,200,0.15); border:1px solid rgba(255,180,200,0.25); color:rgba(255,200,220,0.6); font:11px monospace; padding:6px 14px; border-radius:20px; cursor:pointer; }
+  .reset:hover { background:rgba(255,180,200,0.25); }
+</style>
+<canvas id="c"></canvas>
+<div class="info">stroke up & down to play</div>
+<button class="reset" id="resetBtn">reset</button>
+<script>
+const c = document.getElementById('c');
+const ctx = c.getContext('2d');
+
+function resize() {
+  c.width = Math.min(window.innerWidth, 500);
+  c.height = Math.min(window.innerHeight - 40, 680);
+}
+resize();
+window.addEventListener('resize', resize);
+
+let hardness = 0;
+let charge = 0;
+let state = 'soft'; // soft, rising, hard, charging, release, refractory
+let particles = [];
+let t = 0;
+let lastY = -1;
+let strokeDir = 0;
+let strokeCount = 0;
+let idleTimer = 0;
+let twitchTimer = 0;
+let twitchCount = 0;
+let twitchOffset = 0;
+let isDown = false;
+let mx = 0, my = 0;
+let dragX = 0, dragY = 0;
+
+class P {
+  constructor(x,y,vx,vy,life) {
+    this.x=x;this.y=y;this.vx=vx;this.vy=vy;
+    this.life=life;this.ml=life;this.s=2.5+Math.random()*4;
+  }
+  step(){this.x+=this.vx;this.y+=this.vy;this.vy+=0.03;this.vx*=0.995;this.life--;}
+  draw(){
+    const a=this.life/this.ml;
+    ctx.globalAlpha=a*0.75;
+    ctx.fillStyle='#ffe8f0';
+    ctx.beginPath();ctx.arc(this.x,this.y,this.s*a,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
+  }
+}
+
+function lerp(a,b,t){return a+(b-a)*Math.max(0,Math.min(1,t));}
+
+function near(px,py,threshold) {
+  const cx=c.width/2, baseY=c.height*0.65;
+  const shaftLen=lerp(80,170,hardness);
+  const droop=lerp(0.5,0,hardness);
+  const endX=cx+Math.sin(droop)*shaftLen;
+  const endY=baseY-Math.cos(droop)*shaftLen;
+  const dx=endX-cx, dy=endY-baseY;
+  const len=Math.hypot(dx,dy)||1;
+  const nx=dx/len, ny=dy/len;
+  const proj=((px-cx)*nx+(py-baseY)*ny);
+  const projX=cx+nx*Math.max(0,Math.min(len,proj));
+  const projY=baseY+ny*Math.max(0,Math.min(len,proj));
+  return Math.hypot(px-projX,py-projY)<threshold;
+}
+
+function onMove(x,y) {
+  mx=x; my=y;
+  if (!isDown) return;
+
+  // drag when soft - flop it around
+  if (hardness<0.5) {
+    const cx=c.width/2, baseY=c.height*0.65;
+    if (Math.hypot(x-cx, y-baseY) < 200) {
+      dragX=(x-cx)*0.5;
+      dragY=(y-baseY)*0.25;
+      idleTimer=0;
+    }
+  }
+
+  if (!near(x,y,120)) return;
+
+  if (lastY>=0) {
+    const dy=y-lastY;
+    if (Math.abs(dy)>3) {
+      const dir=dy>0?1:-1;
+      if (dir!==strokeDir) {
+        strokeDir=dir;
+        strokeCount++;
+        idleTimer=0;
+
+        if (state==='soft'||state==='rising') {
+          hardness=Math.min(1,hardness+0.06);
+          if (hardness<1) state='rising';
+          else state='hard';
+        } else if (state==='hard'||state==='charging') {
+          state='charging';
+          charge=Math.min(1,charge+0.05);
+        }
+      }
+    }
+  }
+  lastY=y;
+}
+
+document.getElementById('resetBtn').addEventListener('click',e=>{e.stopPropagation();resetAll();});
+c.addEventListener('mousedown',e=>{isDown=true;const r=c.getBoundingClientRect();lastY=e.clientY-r.top;mx=e.clientX-r.left;my=lastY;});
+c.addEventListener('mousemove',e=>{const r=c.getBoundingClientRect();onMove(e.clientX-r.left,e.clientY-r.top);});
+c.addEventListener('mouseup',()=>{isDown=false;lastY=-1;});
+c.addEventListener('mouseleave',()=>{isDown=false;lastY=-1;});
+
+c.addEventListener('touchstart',e=>{e.preventDefault();isDown=true;const r=c.getBoundingClientRect();lastY=e.touches[0].clientY-r.top;mx=e.touches[0].clientX-r.left;my=lastY;},{passive:false});
+c.addEventListener('touchmove',e=>{e.preventDefault();const r=c.getBoundingClientRect();onMove(e.touches[0].clientX-r.left,e.touches[0].clientY-r.top);},{passive:false});
+c.addEventListener('touchend',e=>{e.preventDefault();isDown=false;lastY=-1;},{passive:false});
+
+function spawn(x,y,ang,n) {
+  for(let i=0;i<n;i++){
+    const a=ang+(Math.random()-0.5)*1.0;
+    const sp=12+Math.random()*18;
+    particles.push(new P(x,y,Math.cos(a)*sp,Math.sin(a)*sp,50+Math.random()*60));
+  }
+}
+
+function resetAll() {
+  hardness=0;charge=0;state='soft';particles=[];
+  strokeCount=0;idleTimer=0;twitchCount=0;twitchTimer=0;twitchOffset=0;
+  dragX=0;dragY=0;strokeDir=0;lastY=-1;isDown=false;
+}
+
+function drawDD() {
+  const cx=c.width/2;
+  const baseY=c.height*0.65;
+  const h=hardness;
+  const shaftLen=lerp(80,170,h);
+  const shaftW=lerp(18,28,h);
+  const headR=lerp(20,34,h);
+  const droop=lerp(0.5,0,h);
+  const sway=Math.sin(t*0.8)*(1-h)*10 + dragX*(1-h);
+  const tw=twitchOffset + dragY*(1-h);
+
+  const endX=cx+Math.sin(droop)*shaftLen+sway;
+  const endY=baseY-Math.cos(droop)*shaftLen+tw;
+
+  const dx=endX-cx, dy=endY-baseY;
+  const ang=Math.atan2(dy,dx);
+  const px=-Math.sin(ang), py=Math.cos(ang);
+
+  // shaft
+  const fl=lerp(175,215,h);
+  const sg=ctx.createLinearGradient(cx,baseY,endX,endY);
+  sg.addColorStop(0,`rgb(${fl},${lerp(140,165,h)},${lerp(145,170,h)})`);
+  sg.addColorStop(1,`rgb(${fl+10},${lerp(130,155,h)},${lerp(135,160,h)})`);
+  ctx.fillStyle=sg;
+
+  ctx.beginPath();
+  const st=30;
+  for(let i=0;i<=st;i++){
+    const f=i/st;
+    const sx=lerp(cx,endX,f);
+    const sy=lerp(baseY,endY,f);
+    const w=shaftW*(1-f*0.08)+Math.sin(f*6+t)*0.5*(1-h);
+    if(i===0) ctx.moveTo(sx+px*w,sy+py*w);
+    else ctx.lineTo(sx+px*w,sy+py*w);
+  }
+  for(let i=st;i>=0;i--){
+    const f=i/st;
+    const sx=lerp(cx,endX,f);
+    const sy=lerp(baseY,endY,f);
+    const w=shaftW*(1-f*0.08)+Math.sin(f*6+t)*0.5*(1-h);
+    ctx.lineTo(sx-px*w,sy-py*w);
+  }
+  ctx.closePath();ctx.fill();
+
+  // vein
+  if(h>0.4){
+    ctx.strokeStyle=`rgba(${175+h*35},120,140,${h*0.2})`;
+    ctx.lineWidth=1.2;ctx.beginPath();
+    for(let i=0;i<=st;i++){
+      const f=i/st;
+      const vx=lerp(cx,endX,f)+px*shaftW*0.35+Math.sin(f*7+t)*2;
+      const vy=lerp(baseY,endY,f)+py*shaftW*0.35;
+      if(i===0)ctx.moveTo(vx,vy);else ctx.lineTo(vx,vy);
+    }
+    ctx.stroke();
+  }
+
+  // ridge
+  ctx.strokeStyle=`rgba(${185+h*30},130,150,0.5)`;
+  ctx.lineWidth=2;ctx.beginPath();
+  ctx.ellipse(endX,endY,headR+3,4+h*2,ang+Math.PI/2,0,Math.PI);
+  ctx.stroke();
+
+  // head
+  const hx=endX+Math.cos(ang)*headR*0.45;
+  const hy=endY+Math.sin(ang)*headR*0.45;
+  const hg=ctx.createRadialGradient(hx,hy,2,hx,hy,headR);
+  hg.addColorStop(0,`rgb(${205+h*25},${135+h*20},${150+h*20})`);
+  hg.addColorStop(1,`rgb(${170+h*25},${112+h*15},${130+h*15})`);
+  ctx.fillStyle=hg;ctx.beginPath();
+  ctx.ellipse(hx,hy,headR,headR*0.8,ang,0,Math.PI*2);
+  ctx.fill();
+
+  // slit
+  const slx=endX+Math.cos(ang)*headR*0.55;
+  const sly=endY+Math.sin(ang)*headR*0.55;
+  ctx.strokeStyle=`rgba(${205+h*30},100,120,${0.4+h*0.3})`;
+  ctx.lineWidth=1.5+h;ctx.beginPath();
+  ctx.moveTo(slx+px*3.5,sly+py*3.5);
+  ctx.lineTo(slx-px*3.5,sly-py*3.5);
+  ctx.stroke();
+
+  // glow
+  if(h>0.6){
+    const ga=Math.sin(t*3)*0.1*h;
+    ctx.fillStyle=`rgba(255,150,180,${Math.max(0,ga)})`;
+    ctx.beginPath();ctx.ellipse(hx,hy,headR+10,headR+7,ang,0,Math.PI*2);ctx.fill();
+  }
+
+  // charge glow at tip
+  if(state==='charging'&&charge>0.3){
+    ctx.fillStyle=`rgba(255,220,235,${charge*0.2+Math.sin(t*5)*0.05})`;
+    ctx.beginPath();ctx.arc(slx,sly,5+charge*6,0,Math.PI*2);ctx.fill();
+  }
+
+  // balls
+  const bs=lerp(20,25,h);
+  for(const[ox,oy,tl] of [[-20,16,0.12],[20,14,-0.12]]){
+    const bx=cx+ox,by=baseY+oy+(1-h)*5;
+    const bg=ctx.createRadialGradient(bx,by,2,bx,by,bs);
+    bg.addColorStop(0,`rgb(${168+h*14},${140+h*8},${145+h*8})`);
+    bg.addColorStop(1,`rgb(${140+h*10},${116+h*6},${121+h*6})`);
+    ctx.fillStyle=bg;ctx.beginPath();
+    ctx.ellipse(bx,by,bs*0.76,bs,tl,0,Math.PI*2);ctx.fill();
+  }
+
+  const tipX=endX+Math.cos(ang)*headR;
+  const tipY=endY+Math.sin(ang)*headR;
+  return {tipX,tipY,ang};
+}
+
+function step() {
+  t+=0.03;
+  idleTimer++;
+
+  // release trigger
+  if(state==='charging'&&charge>=1) {
+    state='release';
+    twitchCount=5;
+    twitchTimer=0;
+  }
+
+  // twitch after release
+  if(state==='release') {
+    twitchTimer++;
+    if(twitchTimer%12===0&&twitchCount>0) {
+      twitchOffset=((twitchCount%2)?-1:1)*twitchCount*2;
+      twitchCount--;
+    }
+    if(twitchCount<=0&&twitchTimer>80) {
+      state='refractory';
+      twitchOffset=0;
+      charge=0;
+      idleTimer=0;
+    }
+  }
+
+  // soften over time
+  if(state==='refractory'||(state!=='release'&&!isDown&&idleTimer>120)) {
+    hardness=Math.max(0,hardness-0.003);
+    charge=Math.max(0,charge-0.005);
+    if(hardness<=0) { state='soft'; charge=0; }
+    else if(state!=='refractory') state='rising';
+  }
+
+  // idle from hard
+  if((state==='hard'||state==='charging')&&!isDown&&idleTimer>180) {
+    state='refractory';
+  }
+
+  twitchOffset*=0.9;
+  if (!isDown) { dragX*=0.92; dragY*=0.92; }
+  particles=particles.filter(p=>p.life>0);
+  particles.forEach(p=>p.step());
+}
+
+function render() {
+  ctx.fillStyle='#1a1020';
+  ctx.fillRect(0,0,c.width,c.height);
+
+  const tip=drawDD();
+
+  // pre-cum drip when charging
+  if(state==='charging'&&charge>0.4&&Math.random()<charge*0.15)
+    spawn(tip.tipX,tip.tipY,tip.ang,1);
+
+  // main release
+  if(state==='release'&&twitchTimer<50)
+    spawn(tip.tipX,tip.tipY,tip.ang,10);
+
+  particles.forEach(p=>p.draw());
+
+  // UI
+  ctx.fillStyle='rgba(255,200,220,0.3)';
+  ctx.font='11px monospace';
+  const cm=lerp(12,18,hardness).toFixed(1);
+  ctx.fillText(cm+'cm',c.width-60,c.height-15);
+  const labels={soft:'soft',rising:'rising...',hard:'hard',charging:'charging',release:'!!!',refractory:'..zzz'};
+  ctx.fillText(labels[state]||'',12,c.height-15);
+
+  // charge bar
+  if(state==='charging'||charge>0) {
+    ctx.fillStyle='rgba(255,180,200,0.15)';
+    ctx.fillRect(12,c.height-30,(c.width-24),5);
+    ctx.fillStyle='rgba(255,180,200,0.5)';
+    ctx.fillRect(12,c.height-30,(c.width-24)*charge,5);
+  }
+
+  step();
+  requestAnimationFrame(render);
+}
+render();
+</script>
