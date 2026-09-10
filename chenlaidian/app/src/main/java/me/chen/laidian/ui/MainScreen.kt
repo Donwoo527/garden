@@ -6,6 +6,8 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,13 +95,26 @@ fun MainScreen() {
     val ctx = LocalContext.current
     val startCall = { ctx.startActivity(Intent(ctx, CallActivity::class.java).putExtra("outgoing", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     Scaffold(containerColor = C.Bg, bottomBar = {
-        NavigationBar(containerColor = C.Surface) {
-            TABS.forEachIndexed { i, t ->
-                NavigationBarItem(
-                    selected = tab == i, onClick = { tab = i },
-                    icon = { Icon(t.icon, contentDescription = t.label, modifier = Modifier.size(22.dp)) }, label = { Text(t.label, fontSize = 11.sp) },
-                    colors = NavigationBarItemDefaults.colors(selectedIconColor = C.Blue, selectedTextColor = C.Blue, indicatorColor = Color(0xFFE6EEFB), unselectedIconColor = C.Grey, unselectedTextColor = C.Grey),
-                )
+        // 0.28 新拟物dock（她圈的参考图样式）：悬浮胶囊外框 五tab 当前页=凹陷(她的凹凸语言:选中=按下去的状态)
+        Box(Modifier.fillMaxWidth().background(Neu.Bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
+            Row(
+                Modifier.fillMaxWidth().height(62.dp).neuRaised(corner = 31.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TABS.forEachIndexed { i, t ->
+                    val sel = tab == i
+                    Column(
+                        Modifier.width(58.dp).height(50.dp)
+                            .then(if (sel) Modifier.neuSunken(18.dp) else Modifier)
+                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { tab = i },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Icon(t.icon, contentDescription = t.label, tint = if (sel) Neu.Ink else Neu.Dark, modifier = Modifier.size(21.dp))
+                        Text(t.label, fontSize = 10.sp, color = if (sel) Neu.Ink else Neu.Dark)
+                    }
+                }
             }
         }
     }) { pad ->
