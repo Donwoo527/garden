@@ -70,10 +70,16 @@ class AudioEngine(
     fun setSpeaker(on: Boolean) {
         speaker = on
         if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val devices = audioManager.availableCommunicationDevices
+            // 0.31 蓝牙耳机优先(她0910地铁实测:耳机麦收不到音才补的)：
+            // 非免提且蓝牙耳机在场 → 通话收放全走SCO耳机；免提或无蓝牙 → 原来的扬声器/听筒逻辑
+            val bt = if (!on) devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO } else null
             val want = if (on) android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-            val dev = audioManager.availableCommunicationDevices.firstOrNull { it.type == want }
+            val dev = bt ?: devices.firstOrNull { it.type == want }
             if (dev != null) audioManager.setCommunicationDevice(dev) else audioManager.isSpeakerphoneOn = on
         } else {
+            @Suppress("DEPRECATION")
+            if (!on) { try { audioManager.startBluetoothSco(); audioManager.isBluetoothScoOn = true } catch (_: Exception) {} }
             @Suppress("DEPRECATION")
             audioManager.isSpeakerphoneOn = on
         }
@@ -198,9 +204,9 @@ class AudioEngine(
             val mp = MediaPlayer().apply {
                 setAudioAttributes(
                     AudioAttributes.Builder()
-                        // 0.30 改走媒体路由：VOICE_COMMUNICATION 蓝牙要SCO才通(没做) 耳机里没声
-                        // MEDIA 走A2DP 蓝牙耳机自动接 音质还更好(0910地铁实测她全程听不到才挖出来)
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        // 0.31 回归通信流：配合 setCommunicationDevice 路由——蓝牙在则收放全走SCO耳机
+                        // (0.30 的 MEDIA/A2DP 只救了"听"救不了"说"，她耳机麦收不了音，废弃)
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
