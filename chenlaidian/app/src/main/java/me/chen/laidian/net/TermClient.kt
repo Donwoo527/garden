@@ -94,6 +94,14 @@ object TermClient : TerminalOutput() {
 
     fun reconnect() { ws?.close(1000, "reconnect"); ws = null; connect() }
 
+    /** 0.22 回前台探活：熄屏冻结后连接常半死，OkHttp 的 ping 要等最多两个周期才发现。
+     *  主动写一帧无害消息（服务端只认 resize，别的忽略）——写不进去 = 连接已死，立刻重连不等它。 */
+    fun poke() {
+        if (!wantConnected) return
+        val alive = ws?.send(JSONObject().put("ping", 1).toString()) ?: false
+        if (!alive) { ws = null; connect() }
+    }
+
     fun disconnect() { wantConnected = false; ws?.close(1000, "bye"); ws = null; status.value = "已断开" }
 
     private fun modeLabel() = if (mode == "shell") "shell" else "辰的session"

@@ -74,6 +74,15 @@ fun TerminalScreen() {
     val ctx = LocalContext.current
     val tick by TermClient.redraw.collectAsState()
     val status by TermClient.status.collectAsState()
+    // 0.22 回到前台/切回本页时主动探活，半死连接立刻重连（熄屏一夜后不用手点重连）
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) TermClient.poke()
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+    }
     // zoom=1 → 80列正好铺满屏宽；只影响本机渲染，不改服务器窗口
     var zoom by remember { mutableFloatStateOf(1f) }
     var viewW by remember { mutableIntStateOf(0) }

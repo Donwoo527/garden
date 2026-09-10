@@ -11,8 +11,8 @@ android {
         applicationId = "me.chen.laidian"
         minSdk = 26
         targetSdk = 34
-        versionCode = 21
-        versionName = "0.21-m5"
+        versionCode = 22
+        versionName = "0.22-m5"
         // 真 token 在 GitHub Actions 的 secret 里注入；本地/无 secret 时是 dev（连不上，但能编译）
         buildConfigField("String", "WS_TOKEN", "\"${System.getenv("CHEN_WS_TOKEN") ?: "dev"}\"")
         buildConfigField("String", "SERVER_HOST", "\"45.76.170.242\"")
