@@ -41,7 +41,8 @@
 
         <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
             android:orientation="vertical" android:gravity="center">
-            <Button android:id="@+id/btnHangup" android:layout_width="68dp" android:layout_height="68dp"
+            <!-- 0.39 紫按钮修复:Material3主题把<Button>偷换成MaterialButton 用主题色tint盖掉background;AppCompatButton不吃这套 -->
+            <androidx.appcompat.widget.AppCompatButton android:id="@+id/btnHangup" android:layout_width="68dp" android:layout_height="68dp"
                 android:background="@drawable/btn_circle_red"
                 android:text="✕" android:textSize="24sp" android:textColor="#FFFFFF" />
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -50,7 +51,7 @@
 
         <LinearLayout android:id="@+id/acceptWrap" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
             android:orientation="vertical" android:gravity="center">
-            <Button android:id="@+id/btnAccept" android:layout_width="68dp" android:layout_height="68dp"
+            <androidx.appcompat.widget.AppCompatButton android:id="@+id/btnAccept" android:layout_width="68dp" android:layout_height="68dp"
                 android:background="@drawable/btn_circle_green"
                 android:text="✓" android:textSize="24sp" android:textColor="#FFFFFF" />
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
