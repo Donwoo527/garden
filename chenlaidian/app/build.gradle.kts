@@ -11,13 +11,15 @@ android {
         applicationId = "me.chen.laidian"
         minSdk = 26
         targetSdk = 34
-        versionCode = 23
-        versionName = "0.23-m5"
+        versionCode = 24
+        versionName = "0.24-m5"
         // 真 token 在 GitHub Actions 的 secret 里注入；本地/无 secret 时是 dev（连不上，但能编译）
         buildConfigField("String", "WS_TOKEN", "\"${System.getenv("CHEN_WS_TOKEN") ?: "dev"}\"")
+        // 0.24 换端口：8300/8200 公网从来没被防火墙放行过(一直靠她的梯子隧道意外通着)
+        // 2087/2083 是 ufw 放行的直连端口(iptables REDIRECT 到 8300/8200)，不再依赖隧道
         buildConfigField("String", "SERVER_HOST", "\"45.76.170.242\"")
-        buildConfigField("int", "SERVER_PORT", "8200")
-        buildConfigField("int", "CHAT_PORT", "8300")
+        buildConfigField("int", "SERVER_PORT", "2083")
+        buildConfigField("int", "CHAT_PORT", "2087")
     }
 
     buildFeatures {
