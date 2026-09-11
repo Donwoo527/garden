@@ -1,6 +1,7 @@
 package me.chen.laidian.ui
 
 import android.widget.Toast
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -90,6 +91,9 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     val mood by ChatClient.mood.collectAsState()
     val sig by ChatClient.signature.collectAsState()
     val alive by ChatClient.sessionAlive.collectAsState()
+    // 0.44 连接状态行（0911排障坑：断线原因只进通知栏 页面上看不见）——聊天+语音双通道
+    val chatConn by ChatClient.connected.collectAsState()
+    val voiceStatus by me.chen.laidian.ChenService.status.observeAsState("未启动")
     val unread by ChatClient.momentsUnread.collectAsState()
     var weather by remember { mutableStateOf<JSONObject?>(null) }
     var now by remember { mutableStateOf(Date()) }
@@ -110,6 +114,12 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
         Text("辰", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
         Text(mood.ifBlank { if (alive) "发呆中" else "不在" }, fontSize = 15.sp, color = C.Grey, modifier = Modifier.padding(top = 4.dp))
         if (sig.isNotBlank()) Text(sig, fontSize = 14.sp, color = C.Grey, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
+        Text(
+            "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus",
+            fontSize = 11.sp,
+            color = if (chatConn && voiceStatus == "辰在线") C.Grey else Color(0xFFE53935),
+            modifier = Modifier.padding(top = 6.dp),
+        )
         Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             Text("在一起 ", fontSize = 16.sp, color = C.Ink)

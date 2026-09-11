@@ -11,8 +11,8 @@ android {
         applicationId = "me.chen.laidian"
         minSdk = 26
         targetSdk = 34
-        versionCode = 43
-        versionName = "0.43-m5"
+        versionCode = 44
+        versionName = "0.44-m5"
         // 真 token 在 GitHub Actions 的 secret 里注入；本地/无 secret 时是 dev（连不上，但能编译）
         buildConfigField("String", "WS_TOKEN", "\"${System.getenv("CHEN_WS_TOKEN") ?: "dev"}\"")
         // 0.26 端口回滚原样(她拍板:少变量)。通路=梯子隧道(tun或socks10808均进v2ray核心→VPS内部访问)
