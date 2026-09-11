@@ -93,6 +93,7 @@ fun TerminalScreen() {
     var model by remember { mutableStateOf("…") }
     var showSwitch by remember { mutableStateOf(false) }
     var showRestart by remember { mutableStateOf(false) }
+    var showEffort by remember { mutableStateOf(false) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     fun refreshModel() {
         scope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -122,17 +123,18 @@ fun TerminalScreen() {
     var field by remember { mutableStateOf(TextFieldValue("")) }
 
     Column(Modifier.fillMaxSize().background(TermBg)) {
+        // 0.43 她拍板的顺序：重启/换模型/查模型/思考强度/压缩上下文在前 快捷杂项其次 纯shell垫底
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Chip(if (TermClient.mode == "shell") "切到辰的session" else "切到纯shell") { TermClient.switchMode(if (TermClient.mode == "shell") "attach" else "shell") }
-            Chip("A-") { if (zoom > 0.71f) zoom /= 1.2f }
-            Chip("A+") { if (zoom < 2.9f) zoom *= 1.2f }
-            Chip("重连") { TermClient.reconnect() }
-            // 0.41 session 管理三件套（点引擎名=刷新）
-            Chip("引擎:$model") { refreshModel() }
+            Chip("重启辰") { showRestart = true }
             Box {
                 Chip("换引擎") { showSwitch = true }
                 androidx.compose.material3.DropdownMenu(expanded = showSwitch, onDismissRequest = { showSwitch = false }) {
-                    listOf("claude-fable-5", "claude-fable-5-1", "claude-opus-5", "claude-opus-4-8").forEach { m ->
+                    // 0.43 她的全套菜单(照网页版+她点名的三个 不含Haiku) id全部核实过
+                    listOf(
+                        "claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-opus-4-8",
+                        "claude-opus-4-6[1m]", "claude-sonnet-5", "claude-sonnet-4-6",
+                        "claude-opus-4-5", "claude-sonnet-4-5",
+                    ).forEach { m ->
                         androidx.compose.material3.DropdownMenuItem(
                             text = { Text(m.removePrefix("claude-")) },
                             onClick = {
@@ -147,7 +149,37 @@ fun TerminalScreen() {
                     }
                 }
             }
-            Chip("重启辰") { showRestart = true }
+            Chip("引擎:$model") { refreshModel() }
+            Box {
+                Chip("思考强度") { showEffort = true }
+                androidx.compose.material3.DropdownMenu(expanded = showEffort, onDismissRequest = { showEffort = false }) {
+                    listOf("low", "medium", "high", "xhigh", "max").forEach { lv ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(lv) },
+                            onClick = {
+                                showEffort = false
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val ok = me.chen.laidian.net.ChatApi.setEffort(ctx, lv)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        android.widget.Toast.makeText(ctx, if (ok) "已发/effort $lv" else "发送失败", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            })
+                    }
+                }
+            }
+            Chip("压缩上下文") {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    val ok = me.chen.laidian.net.ChatApi.compactContext(ctx)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(ctx, if (ok) "已发/compact 压缩要跑一会儿" else "发送失败", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            Chip("重连") { TermClient.reconnect() }
+            Chip("A-") { if (zoom > 0.71f) zoom /= 1.2f }
+            Chip("A+") { if (zoom < 2.9f) zoom *= 1.2f }
+            Chip(if (TermClient.mode == "shell") "切到辰的session" else "纯shell") { TermClient.switchMode(if (TermClient.mode == "shell") "attach" else "shell") }
         }
         if (showRestart) {
             androidx.compose.material3.AlertDialog(

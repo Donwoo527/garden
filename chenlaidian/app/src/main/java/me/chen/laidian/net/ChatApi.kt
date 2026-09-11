@@ -135,6 +135,13 @@ object ChatApi {
     /** 重启辰的session（kill+哨兵45秒拉新；调用前app已二次确认） */
     fun restartSession(ctx: Context): Boolean = postJson(ctx, "/term/restart", JSONObject())
 
+    /** 0.43 压缩上下文：往辰的输入行发 /compact */
+    fun compactContext(ctx: Context): Boolean = postJson(ctx, "/term/cmd", JSONObject().put("cmd", "compact"))
+
+    /** 0.43 调思考强度：往辰的输入行发 /effort <level> */
+    fun setEffort(ctx: Context, level: String): Boolean =
+        postJson(ctx, "/term/cmd", JSONObject().put("cmd", "effort").put("level", level))
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()

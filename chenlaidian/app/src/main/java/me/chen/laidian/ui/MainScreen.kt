@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,6 +94,8 @@ private val TABS = listOf(
 fun MainScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val ctx = LocalContext.current
+    // 0.43 她点单：辰发朋友圈 dock主页图标也要红点 不点进主页也看得见
+    val momentsUnread by ChatClient.momentsUnread.collectAsState()
     val startCall = { ctx.startActivity(Intent(ctx, CallActivity::class.java).putExtra("outgoing", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     Scaffold(containerColor = C.Bg, bottomBar = {
         // 0.28 新拟物dock（她圈的参考图样式）：悬浮胶囊外框 五tab 当前页=凹陷(她的凹凸语言:选中=按下去的状态)
@@ -111,7 +114,19 @@ fun MainScreen() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Icon(t.icon, contentDescription = t.label, tint = if (sel) Neu.Ink else Neu.Dark, modifier = Modifier.size(21.dp))
+                        Box {
+                            Icon(t.icon, contentDescription = t.label, tint = if (sel) Neu.Ink else Neu.Dark, modifier = Modifier.size(21.dp))
+                            if (i == 2 && momentsUnread > 0) {
+                                Box(
+                                    Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-4).dp)
+                                        .background(Color(0xFFE53935), CircleShape)
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                ) {
+                                    Text(if (momentsUnread > 9) "9+" else "$momentsUnread",
+                                        fontSize = 8.sp, color = Color.White)
+                                }
+                            }
+                        }
                         Text(t.label, fontSize = 10.sp, color = if (sel) Neu.Ink else Neu.Dark)
                     }
                 }
