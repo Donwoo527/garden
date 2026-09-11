@@ -42,6 +42,24 @@ class AudioEngine(
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     @Volatile private var capturing = false
     @Volatile private var muted = false
+    // 0.45 音频焦点：真电话/别的app抢走声音时暂停 抢完自动恢复（0911她通话被打断只能重拨的坑）
+    @Volatile private var interrupted = false
+    private var focusRequest: android.media.AudioFocusRequest? = null
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                interrupted = true
+                try { player?.pause() } catch (_: Exception) {}
+                onState("被打断了 我等着 回来继续")
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                interrupted = false
+                try { player?.start() } catch (_: Exception) {}
+                onState("回来了 听着呢")
+            }
+        }
+    }
     private var captureThread: Thread? = null
     private var player: MediaPlayer? = null
     private val playQueue = LinkedBlockingQueue<String>()
@@ -51,6 +69,14 @@ class AudioEngine(
 
     fun startCall() {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        // 0.45 正式声明"我在通话"：拿语音焦点 别人抢了会通知我们 抢完自动还
+        val attrs = android.media.AudioAttributes.Builder()
+            .setUsage(android.media.AudioAttributes.USAGE_VOICE_COMMUNICATION)
+            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build()
+        focusRequest = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(attrs).setOnAudioFocusChangeListener(focusListener).build()
+            .also { audioManager.requestAudioFocus(it) }
+        interrupted = false
         setSpeaker(false)
         startCapture()
         startPlayer()
@@ -59,6 +85,9 @@ class AudioEngine(
     fun endCall() {
         stopCapture()
         stopPlayer()
+        focusRequest?.let { try { audioManager.abandonAudioFocusRequest(it) } catch (_: Exception) {} }
+        focusRequest = null
+        interrupted = false
         if (android.os.Build.VERSION.SDK_INT >= 31) audioManager.clearCommunicationDevice()
         audioManager.mode = AudioManager.MODE_NORMAL
         speaker = false
@@ -114,7 +143,7 @@ class AudioEngine(
                 while (capturing) {
                     val n = rec.read(frame, 0, FRAME_BYTES)
                     if (n <= 0) continue
-                    if (muted) { // 辰在说：丢帧，重置状态
+                    if (muted || interrupted) { // 辰在说 / 0.45 被真电话打断：丢帧，重置状态
                         utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; continue
                     }
                     val loud = rms(frame, n) > SPEECH_RMS
