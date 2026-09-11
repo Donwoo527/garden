@@ -26,9 +26,10 @@
     <ScrollView android:id="@+id/capScroll"
         android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
         android:layout_marginTop="14dp" android:fillViewport="true" android:scrollbars="vertical">
+        <!-- 0.41 她点单：说的话页面居中 不靠左 -->
         <TextView android:id="@+id/callLast" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="" android:textSize="15sp" android:textColor="#F5EFE6"
-            android:lineSpacingExtra="6dp" android:gravity="start" android:paddingBottom="12dp" />
+            android:lineSpacingExtra="6dp" android:gravity="center_horizontal" android:paddingBottom="12dp" />
     </ScrollView>
 
     <Button android:id="@+id/btnSpeaker" android:layout_width="wrap_content" android:layout_height="wrap_content"

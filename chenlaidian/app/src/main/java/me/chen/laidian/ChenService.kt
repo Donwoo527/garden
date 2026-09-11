@@ -44,6 +44,8 @@ class ChenService : Service() {
 
         val status = MutableLiveData("未启动")
         val lastText = MutableLiveData("")
+        /** 0.41 STT/引擎状态（听着呢/翻译中/你在说…）与字幕分流：状态走这里 不再占字幕区 */
+        val sttStatus = MutableLiveData("")
         @Volatile var callStartTs = 0L   // 0.34 通话开始时间(悬浮小窗计时用)
         /** 空闲 / 响铃中 / 通话中 / 已挂断 */
         val callState = MutableLiveData("空闲")
@@ -72,7 +74,7 @@ class ChenService : Service() {
         super.onCreate()
         createChannels()
         client = Tls.client(this)
-        audio = AudioEngine(this, client, { send(it) }, { lastText.postValue(it) })
+        audio = AudioEngine(this, client, { send(it) }, { sttStatus.postValue(it) })
         me.chen.laidian.net.ChatClient.start(applicationContext)
         me.chen.laidian.net.ChatClient.onMessage = { m -> if (m.isChen && !AppState.visible) notifyMsg(m) }
     }
@@ -172,7 +174,7 @@ class ChenService : Service() {
                 handler.postDelayed(pingRunnable, 30_000)
             }
             "pong" -> {}
-            "status" -> lastText.postValue(o.optString("message"))
+            "status" -> sttStatus.postValue(o.optString("message"))
             "stt" -> lastText.postValue("你：" + o.optString("text"))
             "reply", "audio_reply" -> {
                 lastText.postValue("辰：" + o.optString("text"))

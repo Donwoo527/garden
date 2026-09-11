@@ -50,9 +50,14 @@ object FloatCall {
             background = GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(16).toFloat() }
             elevation = dp(6).toFloat()
         }
-        box.addView(TextView(app).apply { text = "📞"; textSize = 22f })
-        timeTv = TextView(app).apply { text = "00:00"; textSize = 13f; setTextColor(Color.parseColor("#34B559")) }
-        box.addView(timeTv)
+        // 0.41 她点单：图标/时长在小窗里显式居中（光靠容器gravity实机上偏左）
+        box.addView(TextView(app).apply { text = "📞"; textSize = 22f; gravity = Gravity.CENTER },
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { gravity = Gravity.CENTER_HORIZONTAL })
+        timeTv = TextView(app).apply { text = "00:00"; textSize = 13f; setTextColor(Color.parseColor("#34B559")); gravity = Gravity.CENTER }
+        box.addView(timeTv,
+            LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { gravity = Gravity.CENTER_HORIZONTAL })
 
         val lp = WindowManager.LayoutParams(
             dp(76), dp(76),

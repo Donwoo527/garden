@@ -115,6 +115,26 @@ object ChatApi {
         return try { http(ctx).newCall(req).execute().use { r -> if (r.isSuccessful) JSONObject(r.body?.string() ?: return null) else null } } catch (e: Exception) { null }
     }
 
+    // ── 0.41 终端页 session 管理（她点单：查看/换引擎/重启）──────────────
+
+    /** 当前引擎（服务端读哨兵state） */
+    fun termModel(ctx: Context): String? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/term/model").header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return null
+                JSONObject(r.body?.string() ?: return null).optString("model", "").takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) { null }
+    }
+
+    /** 往辰的输入行发 /model 切换（服务端白名单校验） */
+    fun switchModel(ctx: Context, model: String): Boolean =
+        postJson(ctx, "/term/model", JSONObject().put("model", model))
+
+    /** 重启辰的session（kill+哨兵45秒拉新；调用前app已二次确认） */
+    fun restartSession(ctx: Context): Boolean = postJson(ctx, "/term/restart", JSONObject())
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()

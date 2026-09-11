@@ -41,7 +41,9 @@ class CallActivity : AppCompatActivity() {
         (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).requestDismissKeyguard(this, null)
 
         setContentView(R.layout.activity_call)
-        findViewById<TextView>(R.id.callText).text = intent.getStringExtra("text") ?: "辰打电话来了"
+        // 0.41 文案分工（她点单）：title=主状态(辰打电话来了/等待接听中/通话中) state=STT子状态(听着呢/翻译中)
+        val title = findViewById<TextView>(R.id.callText)
+        title.text = intent.getStringExtra("text") ?: "辰打电话来了"
         val state = findViewById<TextView>(R.id.callState)
         val accept = findViewById<Button>(R.id.btnAccept)
         val acceptWrap = findViewById<View>(R.id.acceptWrap)
@@ -60,8 +62,10 @@ class CallActivity : AppCompatActivity() {
         ChenService.speakerOn.observe(this) { speaker.text = if (it) "免提：开" else "免提：关" }
         ChenService.callState.observe(this) {
             if (it == "已挂断") { stopRinging(); beepEnd(); finish() }
-            else if (it == "通话中") { stopRinging(); state.text = "通话中"; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }
+            else if (it == "通话中") { stopRinging(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }
         }
+        // 0.41 听着呢/翻译中这类状态显示在"通话中"下面 不再刷进字幕区
+        ChenService.sttStatus.observe(this) { if (ChenService.callState.value == "通话中") state.text = it ?: "" }
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
         // 0.35 她点名的可见缩小按钮：点了回上一页 通话不断 浮窗由onDestroy兜底弹出
         findViewById<TextView>(R.id.btnMinimize).setOnClickListener { finish() }
@@ -69,12 +73,13 @@ class CallActivity : AppCompatActivity() {
         val outgoing = intent.getBooleanExtra("outgoing", false)
         val resume = intent.getBooleanExtra("resume", false)   // 0.34 从悬浮小窗点回来
         if (resume) {
-            findViewById<TextView>(R.id.callText).text = "通话中"
-            state.text = ChenService.callState.value ?: "通话中"
+            title.text = "通话中"
+            state.text = ChenService.sttStatus.value ?: ""
             acceptWrap.visibility = View.GONE
         } else if (outgoing) {
-            findViewById<TextView>(R.id.callText).text = "打给辰"
-            state.text = "接通中…"
+            // 0.41 她点单："打给辰"是废话 删掉 这行直接放状态
+            title.text = "等待接听中…"
+            state.text = ""
             acceptWrap.visibility = View.GONE
             svc(ChenService.ACTION_ACCEPT)
         } else {
@@ -86,7 +91,8 @@ class CallActivity : AppCompatActivity() {
         }
         accept.setOnClickListener {
             stopRinging()
-            state.text = "接通中…"
+            title.text = "接通中…"
+            state.text = ""
             acceptWrap.visibility = View.GONE
             svc(ChenService.ACTION_ACCEPT)
         }

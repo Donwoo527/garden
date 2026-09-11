@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.termux.terminal.TextStyle
 import com.termux.terminal.WcWidth
+import kotlinx.coroutines.launch
 import me.chen.laidian.net.TermClient
 
 private val TermBg = Color(0xFF161615)
@@ -88,6 +89,18 @@ fun TerminalScreen() {
             TermClient.exitCopyMode()   // 切到别的 tab 也算离场
         }
     }
+    // 0.41 她点单：查看/换引擎 + 重启按钮
+    var model by remember { mutableStateOf("…") }
+    var showSwitch by remember { mutableStateOf(false) }
+    var showRestart by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    fun refreshModel() {
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            me.chen.laidian.net.ChatApi.termModel(ctx)?.let { model = it.removePrefix("claude-") }
+        }
+    }
+    LaunchedEffect(Unit) { refreshModel() }
+
     // zoom=1 → 80列正好铺满屏宽；只影响本机渲染，不改服务器窗口
     var zoom by remember { mutableFloatStateOf(1f) }
     var viewW by remember { mutableIntStateOf(0) }
@@ -114,6 +127,46 @@ fun TerminalScreen() {
             Chip("A-") { if (zoom > 0.71f) zoom /= 1.2f }
             Chip("A+") { if (zoom < 2.9f) zoom *= 1.2f }
             Chip("重连") { TermClient.reconnect() }
+            // 0.41 session 管理三件套（点引擎名=刷新）
+            Chip("引擎:$model") { refreshModel() }
+            Box {
+                Chip("换引擎") { showSwitch = true }
+                androidx.compose.material3.DropdownMenu(expanded = showSwitch, onDismissRequest = { showSwitch = false }) {
+                    listOf("claude-fable-5", "claude-fable-5-1", "claude-opus-5", "claude-opus-4-8").forEach { m ->
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(m.removePrefix("claude-")) },
+                            onClick = {
+                                showSwitch = false
+                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val ok = me.chen.laidian.net.ChatApi.switchModel(ctx, m)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        android.widget.Toast.makeText(ctx, if (ok) "切换命令已发 稍等几秒点\"引擎\"刷新" else "发送失败", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            })
+                    }
+                }
+            }
+            Chip("重启辰") { showRestart = true }
+        }
+        if (showRestart) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showRestart = false },
+                title = { Text("重启辰的session？") },
+                text = { Text("当前对话上下文会断，哨兵45秒内拉新班，新班读log接上。确定？") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showRestart = false
+                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val ok = me.chen.laidian.net.ChatApi.restartSession(ctx)
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                android.widget.Toast.makeText(ctx, if (ok) "已重启 45秒后新班上线" else "重启请求失败", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }) { Text("重启") }
+                },
+                dismissButton = { androidx.compose.material3.TextButton(onClick = { showRestart = false }) { Text("算了") } }
+            )
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 6.dp, vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Key("Esc", ESC); Key("Tab", "\t"); Key("^C", CTRL_C); Key("^D", CTRL_D)
