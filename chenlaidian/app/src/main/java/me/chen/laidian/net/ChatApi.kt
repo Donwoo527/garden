@@ -142,6 +142,18 @@ object ChatApi {
     fun setEffort(ctx: Context, level: String): Boolean =
         postJson(ctx, "/term/cmd", JSONObject().put("cmd", "effort").put("level", level))
 
+    /** 0.47 心情/签名历史：[{ts, who, mood, signature}] 新的在前。服务端按 who 过滤，两个人各拉一次再合 */
+    fun profileHistory(ctx: Context, who: String): List<JSONObject>? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/profile_history?who=" + who).header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) return null
+                val a = JSONObject(r.body?.string() ?: return null).optJSONArray("items") ?: return emptyList()
+                (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+            }
+        } catch (e: Exception) { null }
+    }
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()

@@ -188,8 +188,12 @@ private fun ToolsScreen() {
         Spacer(Modifier.height(12.dp))
         SectionTitle("更多")
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            // 0.46 她0911授权的查岗单：系统UsageStats本地榜 不依赖MacroDroid
+            IconCard("手机使用榜", Icons.Default.DateRange, C.Orange, Modifier.weight(1f)) {
+                ctx.startActivity(Intent(ctx, me.chen.laidian.UsageActivity::class.java))
+            }
             IconCard("工具清单", Icons.Default.List, C.Blue, Modifier.weight(1f)) { todo("工具清单") }
-            Spacer(Modifier.weight(2f))
+            Spacer(Modifier.weight(1f))
         }
     }
 }

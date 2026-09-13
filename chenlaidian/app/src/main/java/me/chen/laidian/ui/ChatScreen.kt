@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -99,6 +100,7 @@ fun ChatScreen(onCall: () -> Unit) {
     val loader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
     val readIds by ChatClient.readIds.collectAsState()
     var showCard by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         sending = true
@@ -120,7 +122,8 @@ fun ChatScreen(onCall: () -> Unit) {
 
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Header(connected, alive, mood, sig, onCall, onSearch = { searching = !searching; if (!searching) query = "" }, onAvatar = { showCard = true })
-        if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() })
+        if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() }, onHistory = { showCard = false; showHistory = true })
+        if (showHistory) ProfileHistoryDialog(onDismiss = { showHistory = false })
         if (searching) {
             OutlinedTextField(
                 value = query, onValueChange = { query = it }, singleLine = true,
@@ -284,7 +287,7 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, read: Boolea
 
 /** 点头像弹的资料卡（照网页版：蓝色渐变顶、白底两点方块、名字、心情、签名、四个按钮） */
 @Composable
-private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: () -> Unit, onCall: () -> Unit) {
+private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: () -> Unit, onCall: () -> Unit, onHistory: () -> Unit) {
     val ctx = LocalContext.current
     AlertDialog(onDismissRequest = onDismiss, confirmButton = {}, containerColor = C.Bg, text = {
         Column(Modifier.fillMaxWidth()) {
@@ -302,7 +305,7 @@ private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: ()
                 if (sig.isNotBlank()) Text(sig, fontSize = 13.sp, color = C.Grey, fontStyle = FontStyle.Italic)
                 Spacer(Modifier.height(14.dp))
                 OutlinedButton(onClick = { Toast.makeText(ctx, "朋友圈在主页那格 这里的入口下一版接", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("朋友圈 ›", color = C.Ink) }
-                OutlinedButton(onClick = { Toast.makeText(ctx, "历史心情签名 下一版", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = C.Ink) }
+                OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = C.Ink) }
                 Spacer(Modifier.height(6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
                     Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("发消息") }
@@ -336,4 +339,49 @@ private fun Composer(value: String, onChange: (String) -> Unit, onSend: () -> Un
             ) { Icon(Icons.Default.Send, contentDescription = "发送", tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
     }
+}
+
+/** 0.47 历史心情签名：两个人的改动合成一条时间线，新的在前。数据是 profile_history.jsonl，从 0708 那晚起 */
+@Composable
+private fun ProfileHistoryDialog(onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    var items by remember { mutableStateOf<List<org.json.JSONObject>?>(null) }
+    LaunchedEffect(Unit) {
+        items = withContext(Dispatchers.IO) {
+            val a = ChatApi.profileHistory(ctx, "chen") ?: emptyList()
+            val b = ChatApi.profileHistory(ctx, "xiaochen") ?: emptyList()
+            (a + b).sortedByDescending { it.optDouble("ts", 0.0) }
+        }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { Button(onClick = onDismiss) { Text("关上") } },
+        containerColor = C.Bg,
+        title = { Text("历史心情签名", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = C.Ink) },
+        text = {
+            val list = items
+            when {
+                list == null -> Text("翻着…", fontSize = 13.sp, color = C.Grey)
+                list.isEmpty() -> Text("还没有记录", fontSize = 13.sp, color = C.Grey)
+                else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                    items(list) { h ->
+                        val hers = h.optString("who") == "xiaochen"
+                        val time = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.CHINA)
+                            .format(java.util.Date(h.optDouble("ts", 0.0).toLong() * 1000))
+                        Column(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (hers) "小陈" else "辰", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (hers) C.Blue else C.Ink)
+                                Spacer(Modifier.width(8.dp))
+                                Text(time, fontSize = 11.sp, color = C.Grey)
+                            }
+                            val mood = h.optString("mood", "")
+                            if (mood.isNotBlank()) Text("心情：$mood", fontSize = 13.sp, color = C.Ink, lineHeight = 18.sp)
+                            val sig = h.optString("signature", "")
+                            if (sig.isNotBlank()) Text(sig, fontSize = 13.sp, color = C.Grey, fontStyle = FontStyle.Italic, lineHeight = 18.sp)
+                        }
+                    }
+                }
+            }
+        }
+    )
 }
