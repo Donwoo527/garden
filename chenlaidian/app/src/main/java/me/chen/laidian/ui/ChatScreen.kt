@@ -343,7 +343,7 @@ private fun Composer(value: String, onChange: (String) -> Unit, onSend: () -> Un
 
 /** 0.47 历史心情签名：两个人的改动合成一条时间线，新的在前。数据是 profile_history.jsonl，从 0708 那晚起 */
 @Composable
-private fun ProfileHistoryDialog(onDismiss: () -> Unit) {
+internal fun ProfileHistoryDialog(onDismiss: () -> Unit) {
     val ctx = LocalContext.current
     var items by remember { mutableStateOf<List<org.json.JSONObject>?>(null) }
     LaunchedEffect(Unit) {

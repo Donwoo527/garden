@@ -1,4 +1,5 @@
 package me.chen.laidian.ui.jet
+import me.chen.laidian.ui.ProfileHistoryDialog
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -137,6 +138,7 @@ fun JetConversation(onCall: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var showCard by remember { mutableStateOf(false) }
+    var showHistory by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     val scrollState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
@@ -201,7 +203,8 @@ fun JetConversation(onCall: () -> Unit) {
             )
         }
     }
-    if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() })
+    if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() }, onHistory = { showCard = false; showHistory = true })
+    if (showHistory) ProfileHistoryDialog(onDismiss = { showHistory = false })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -490,7 +493,7 @@ private fun JumpToBottom(enabled: Boolean, onClicked: () -> Unit, modifier: Modi
 }
 
 @Composable
-private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: () -> Unit, onCall: () -> Unit) {
+private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: () -> Unit, onCall: () -> Unit, onHistory: () -> Unit) {
     val ctx = LocalContext.current
     AlertDialog(onDismissRequest = onDismiss, confirmButton = {}, containerColor = C.Bg, text = {
         Column(Modifier.fillMaxWidth()) {
@@ -504,7 +507,7 @@ private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: ()
                 if (sig.isNotBlank()) Text(sig, fontSize = 13.sp, color = C.Grey, fontStyle = FontStyle.Italic)
                 Spacer(Modifier.height(14.dp))
                 OutlinedButton(onClick = { Toast.makeText(ctx, "朋友圈在主页那格", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("朋友圈 ›", color = C.Ink) }
-                OutlinedButton(onClick = { Toast.makeText(ctx, "历史心情签名 下一版", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = C.Ink) }
+                OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = C.Ink) }
                 Spacer(Modifier.height(6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("发消息") }
