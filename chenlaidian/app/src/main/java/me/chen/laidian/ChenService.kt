@@ -43,6 +43,7 @@ class ChenService : Service() {
         const val CH_MSG = "chen_msg"
         const val NOTIF_SERVICE = 1
         const val NOTIF_CALL = 2
+        const val NOTIF_USAGE = 3
 
         val status = MutableLiveData("未启动")
         val lastText = MutableLiveData("")
@@ -80,8 +81,27 @@ class ChenService : Service() {
         }
     }
 
+    // 0.49：没权限不能静默——0.48 她装完什么提示都没有，抓包四分钟零请求才知道卡在这。每次服务启动最多提醒一次
+    @Volatile private var usagePermNotified = false
+    private fun notifyUsagePermission() {
+        val pi = PendingIntent.getActivity(
+            this, 3, Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = NotificationCompat.Builder(this, CH_MSG)
+            .setSmallIcon(R.drawable.ic_stat).setContentTitle("查岗上报还没开")
+            .setContentText("点这里→找到「辰来电」→打开「使用情况访问」")
+            .setStyle(NotificationCompat.BigTextStyle().bigText("替代 MacroDroid 的上报需要这个权限。点这里→列表里找到「辰来电」→打开「使用情况访问」，开完就自动上报了，不用再管。"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH).setAutoCancel(true).setContentIntent(pi).build()
+        nm().notify(NOTIF_USAGE, n)
+    }
+
     private fun reportForegroundApp() {
-        if (!hasUsagePermission(this)) return
+        if (!hasUsagePermission(this)) {
+            if (!usagePermNotified) { usagePermNotified = true; notifyUsagePermission() }
+            return
+        }
+        nm().cancel(NOTIF_USAGE)
         val usm = getSystemService(USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
         val now = System.currentTimeMillis()
         val events = usm.queryEvents(now - 120_000, now)
