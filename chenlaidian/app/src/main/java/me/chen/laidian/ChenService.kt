@@ -76,7 +76,9 @@ class ChenService : Service() {
     @Volatile private var lastReportedApp: String? = null
     private val usageRunnable = object : Runnable {
         override fun run() {
-            try { reportForegroundApp() } catch (_: Exception) {}
+            try { reportForegroundApp() } catch (e: Exception) {
+                lastText.postValue("查岗采集异常: ${e.javaClass.simpleName} ${e.message?.take(50) ?: ""}")
+            }
             handler.postDelayed(this, 60_000)
         }
     }
@@ -98,6 +100,10 @@ class ChenService : Service() {
 
     private fun reportForegroundApp() {
         if (!hasUsagePermission(this)) {
+            // 0.51：把系统返回的原始 mode 打出来——OPPO 到底回了什么，一眼可见
+            val ops = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
+            val mode = ops.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName)
+            lastText.postValue("查岗:系统判定未授权(mode=$mode) 请开「使用情况访问」")
             if (!usagePermNotified) { usagePermNotified = true; notifyUsagePermission() }
             return
         }
@@ -115,7 +121,7 @@ class ChenService : Service() {
                 ts = ev.timeStamp; pkg = ev.packageName
             }
         }
-        val p = pkg ?: return
+        val p = pkg ?: run { lastText.postValue("查岗:6小时内取不到前台事件(权限可能没真生效)"); return }
         val label = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString() } catch (_: Exception) { p.substringAfterLast('.') }
         if (label == lastReportedApp) return
         val body = JSONObject().put("app", label).toString()
@@ -128,8 +134,10 @@ class ChenService : Service() {
             }
             override fun onResponse(call: okhttp3.Call, response: Response) {
                 val code = response.code; response.close()
-                if (code in 200..299) lastReportedApp = label
-                else lastText.postValue("查岗上报被拒: HTTP $code")
+                if (code in 200..299) {
+                    if (lastReportedApp == null) lastText.postValue("查岗:上报正常")   // 只在首次成功时提示一次，不刷屏
+                    lastReportedApp = label
+                } else lastText.postValue("查岗上报被拒: HTTP $code")
             }
         })
     }
