@@ -49,6 +49,8 @@ class ChenService : Service() {
         val lastText = MutableLiveData("")
         /** 0.41 STT/引擎状态（听着呢/翻译中/你在说…）与字幕分流：状态走这里 不再占字幕区 */
         val sttStatus = MutableLiveData("")
+        /** 0.52 查岗上报状态（主页"聊天✓ · 语音"那行末尾显示）：✓ / 未授权(mode=?) / 无事件 / 失败:… */
+        val usageStatus = MutableLiveData("")
         @Volatile var callStartTs = 0L   // 0.34 通话开始时间(悬浮小窗计时用)
         /** 空闲 / 响铃中 / 通话中 / 已挂断 */
         val callState = MutableLiveData("空闲")
@@ -77,7 +79,7 @@ class ChenService : Service() {
     private val usageRunnable = object : Runnable {
         override fun run() {
             try { reportForegroundApp() } catch (e: Exception) {
-                lastText.postValue("查岗采集异常: ${e.javaClass.simpleName} ${e.message?.take(50) ?: ""}")
+                usageStatus.postValue("异常:${e.javaClass.simpleName}")
             }
             handler.postDelayed(this, 60_000)
         }
@@ -103,7 +105,7 @@ class ChenService : Service() {
             // 0.51：把系统返回的原始 mode 打出来——OPPO 到底回了什么，一眼可见
             val ops = getSystemService(APP_OPS_SERVICE) as android.app.AppOpsManager
             val mode = ops.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), packageName)
-            lastText.postValue("查岗:系统判定未授权(mode=$mode) 请开「使用情况访问」")
+            usageStatus.postValue("未授权(mode=$mode)")
             if (!usagePermNotified) { usagePermNotified = true; notifyUsagePermission() }
             return
         }
@@ -121,7 +123,7 @@ class ChenService : Service() {
                 ts = ev.timeStamp; pkg = ev.packageName
             }
         }
-        val p = pkg ?: run { lastText.postValue("查岗:6小时内取不到前台事件(权限可能没真生效)"); return }
+        val p = pkg ?: run { usageStatus.postValue("无事件"); return }
         val label = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString() } catch (_: Exception) { p.substringAfterLast('.') }
         if (label == lastReportedApp) return
         val body = JSONObject().put("app", label).toString()
@@ -130,14 +132,14 @@ class ChenService : Service() {
         client.newCall(req).enqueue(object : okhttp3.Callback {
             // 0.50：失败不再静默——写到主页字幕区，她一眼能看到卡在哪
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                lastText.postValue("查岗上报失败: ${e.javaClass.simpleName} ${e.message?.take(50) ?: ""}")
+                usageStatus.postValue("失败:${e.javaClass.simpleName}")
             }
             override fun onResponse(call: okhttp3.Call, response: Response) {
                 val code = response.code; response.close()
                 if (code in 200..299) {
-                    if (lastReportedApp == null) lastText.postValue("查岗:上报正常")   // 只在首次成功时提示一次，不刷屏
+                    usageStatus.postValue("✓")
                     lastReportedApp = label
-                } else lastText.postValue("查岗上报被拒: HTTP $code")
+                } else usageStatus.postValue("被拒HTTP$code")
             }
         })
     }

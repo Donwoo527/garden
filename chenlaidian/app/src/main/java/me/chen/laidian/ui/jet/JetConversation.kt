@@ -213,7 +213,7 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
                            onAvatar: () -> Unit, onSearch: () -> Unit, onCall: () -> Unit, onInfo: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(60.dp).padding(horizontal = 6.dp),
+            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(52.dp).clickable(onClick = onAvatar), contentAlignment = Alignment.Center) {

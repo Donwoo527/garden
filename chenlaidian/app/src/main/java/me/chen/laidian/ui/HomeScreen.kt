@@ -94,6 +94,7 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     // 0.44 连接状态行（0911排障坑：断线原因只进通知栏 页面上看不见）——聊天+语音双通道
     val chatConn by ChatClient.connected.collectAsState()
     val voiceStatus by me.chen.laidian.ChenService.status.observeAsState("未启动")
+    val usageStatus by me.chen.laidian.ChenService.usageStatus.observeAsState("")
     val unread by ChatClient.momentsUnread.collectAsState()
     var weather by remember { mutableStateOf<JSONObject?>(null) }
     var now by remember { mutableStateOf(Date()) }
@@ -115,7 +116,7 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
         Text(mood.ifBlank { if (alive) "发呆中" else "不在" }, fontSize = 15.sp, color = C.Grey, modifier = Modifier.padding(top = 4.dp))
         if (sig.isNotBlank()) Text(sig, fontSize = 14.sp, color = C.Grey, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
         Text(
-            "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus",
+            "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus" + (if (usageStatus.isNotBlank()) " · 查岗$usageStatus" else ""),
             fontSize = 11.sp,
             color = if (chatConn && voiceStatus == "辰在线") C.Grey else Color(0xFFE53935),
             modifier = Modifier.padding(top = 6.dp),

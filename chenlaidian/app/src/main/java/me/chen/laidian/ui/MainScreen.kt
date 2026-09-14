@@ -97,7 +97,8 @@ fun MainScreen() {
     // 0.43 她点单：辰发朋友圈 dock主页图标也要红点 不点进主页也看得见
     val momentsUnread by ChatClient.momentsUnread.collectAsState()
     val startCall = { ctx.startActivity(Intent(ctx, CallActivity::class.java).putExtra("outgoing", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    Scaffold(containerColor = C.Bg, bottomBar = {
+    // 0.52 状态栏透明后，这块底色就是顶上那一条——跟着当前 tab 的底走，主页是新拟物灰、其余暖白
+    Scaffold(containerColor = if (tab == 2) Neu.Bg else C.Bg, bottomBar = {
         // 0.28 新拟物dock（她圈的参考图样式）：悬浮胶囊外框 五tab 当前页=凹陷(她的凹凸语言:选中=按下去的状态)
         Box(Modifier.fillMaxWidth().background(Neu.Bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Row(
