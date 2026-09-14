@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0.48：只对 VPS 这一个地址放行明文（查岗上报走 8400 的 http），其余照旧禁明文；8200/8300 仍由 Tls.kt 做证书锁定 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">45.76.170.242</domain>
+    </domain-config>
+</network-security-config>

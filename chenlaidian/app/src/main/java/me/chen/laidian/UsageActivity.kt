@@ -40,7 +40,7 @@ class UsageActivity : ComponentActivity() {
 
 private data class AppUse(val label: String, val pkg: String, val ms: Long)
 
-private fun hasUsagePermission(ctx: Context): Boolean {
+internal fun hasUsagePermission(ctx: Context): Boolean {
     val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
     val mode = ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.packageName)
     return mode == AppOpsManager.MODE_ALLOWED

@@ -13,7 +13,9 @@ import android.os.Looper
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.lifecycle.MutableLiveData
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -66,6 +68,42 @@ class ChenService : Service() {
             send(JSONObject().put("type", "ping"))
             handler.postDelayed(this, 30_000)
         }
+    }
+
+    // 0.48 查岗上报：替代 MacroDroid（免费天数到期停了）。每分钟看一眼前台 app，换了才 POST 一条到 8400，
+    // 格式和 MacroDroid 一样（{"app": 中文名}，服务端打时间戳、同名去重），VPS 侧一行不用改。
+    @Volatile private var lastReportedApp: String? = null
+    private val usageRunnable = object : Runnable {
+        override fun run() {
+            try { reportForegroundApp() } catch (_: Exception) {}
+            handler.postDelayed(this, 60_000)
+        }
+    }
+
+    private fun reportForegroundApp() {
+        if (!hasUsagePermission(this)) return
+        val usm = getSystemService(USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
+        val now = System.currentTimeMillis()
+        val events = usm.queryEvents(now - 120_000, now)
+        val ev = android.app.usage.UsageEvents.Event()
+        var pkg: String? = null
+        var ts = 0L
+        while (events.hasNextEvent()) {
+            events.getNextEvent(ev)
+            if (ev.eventType == android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED && ev.timeStamp >= ts) {
+                ts = ev.timeStamp; pkg = ev.packageName
+            }
+        }
+        val p = pkg ?: return
+        val label = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString() } catch (_: Exception) { p.substringAfterLast('.') }
+        if (label == lastReportedApp) return
+        val body = JSONObject().put("app", label).toString()
+            .toRequestBody("application/json".toMediaType())
+        val req = Request.Builder().url("http://${BuildConfig.SERVER_HOST}:8400/report").post(body).build()
+        client.newCall(req).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
+            override fun onResponse(call: okhttp3.Call, response: Response) { response.close(); lastReportedApp = label }
+        })
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -121,6 +159,8 @@ class ChenService : Service() {
         running = true
         connect()
         KeepAliveReceiver.schedule(this)
+        handler.removeCallbacks(usageRunnable)
+        handler.postDelayed(usageRunnable, 5_000)
         return START_STICKY
     }
 
