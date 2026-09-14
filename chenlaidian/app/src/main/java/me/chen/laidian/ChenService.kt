@@ -79,14 +79,35 @@ class ChenService : Service() {
     // 0.48 查岗上报：替代 MacroDroid（免费天数到期停了）。每分钟看一眼前台 app，换了才 POST 一条到 8400，
     // 格式和 MacroDroid 一样（{"app": 中文名}，服务端打时间戳、同名去重），VPS 侧一行不用改。
     @Volatile private var lastReportedApp: String? = null
+    private var usageTick = 0
     private val usageRunnable = object : Runnable {
         override fun run() {
-            try { reportForegroundApp() } catch (e: Exception) {
+            try {
+                reportForegroundApp()
+                if (++usageTick % 10 == 0) postHeartbeat()
+            } catch (e: Exception) {
                 usageStatus.postValue("异常:${e.javaClass.simpleName}")
             }
             handler.postDelayed(this, 60_000)
         }
     }
+
+    // 0.55 心跳：每 10 分钟给 8400 发一个空 /hb，服务端只刷新"最后一次听到手机"的时间，不进记录。
+    // 没有它，服务被杀和她一晚没碰手机在 VPS 侧长得一模一样（0914 17:17 起断报，四小时后才从群聊反推出来）。
+    // 主页那行显示的 ✓ 后面带上时间，她也能一眼看出上报是不是还活着
+    private fun postHeartbeat() {
+        val req = Request.Builder().url("http://${BuildConfig.SERVER_HOST}:8400/hb").post("".toRequestBody(null)).build()
+        client.newCall(req).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                usageStatus.postValue("失败:${e.javaClass.simpleName}")
+            }
+            override fun onResponse(call: okhttp3.Call, response: Response) {
+                val code = response.code; response.close()
+                usageStatus.postValue(if (code in 200..299) "✓${hhmm()}" else "被拒HTTP$code")
+            }
+        })
+    }
+    private fun hhmm(): String = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date())
 
     // 0.49：没权限不能静默——0.48 她装完什么提示都没有，抓包四分钟零请求才知道卡在这。每次服务启动最多提醒一次
     @Volatile private var usagePermNotified = false
@@ -144,7 +165,7 @@ class ChenService : Service() {
             override fun onResponse(call: okhttp3.Call, response: Response) {
                 val code = response.code; response.close()
                 if (code in 200..299) {
-                    usageStatus.postValue("✓")
+                    usageStatus.postValue("✓${hhmm()}")
                     lastReportedApp = label
                 } else usageStatus.postValue("被拒HTTP$code")
             }
