@@ -4,7 +4,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
@@ -125,6 +128,10 @@ class ChenService : Service() {
         }
         val p = pkg ?: run { usageStatus.postValue("无事件"); return }
         val label = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(p, 0)).toString() } catch (_: Exception) { p.substringAfterLast('.') }
+        postApp(label)
+    }
+
+    private fun postApp(label: String) {
         if (label == lastReportedApp) return
         val body = JSONObject().put("app", label).toString()
             .toRequestBody("application/json".toMediaType())
@@ -153,6 +160,24 @@ class ChenService : Service() {
         audio = AudioEngine(this, client, { send(it) }, { sttStatus.postValue(it) })
         me.chen.laidian.net.ChatClient.start(applicationContext)
         me.chen.laidian.net.ChatClient.onMessage = { m -> if (m.isChen && !AppState.visible) notifyMsg(m) }
+        androidx.core.content.ContextCompat.registerReceiver(
+            this, screenReceiver,
+            IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_USER_PRESENT) },
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    // 0.54 息屏也当一条上报（切断前一个 app 的计时——0914 查岗里锁屏时段全算给了前一个 app），亮屏立刻重报当前 app
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context?, i: Intent?) {
+            when (i?.action) {
+                Intent.ACTION_SCREEN_OFF -> postApp("锁屏")
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    lastReportedApp = null
+                    handler.postDelayed({ try { reportForegroundApp() } catch (_: Exception) {} }, 1500)
+                }
+            }
+        }
     }
 
     private fun notifyMsg(m: me.chen.laidian.model.Msg) {
@@ -203,6 +228,7 @@ class ChenService : Service() {
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(screenReceiver) } catch (_: Exception) {}
         // 被系统杀了也让闹钟把我们拉回来（ACTION_STOP 主动下线的路径里 running 早已置 false）
         if (running) KeepAliveReceiver.schedule(this)
         running = false
