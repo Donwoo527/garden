@@ -199,7 +199,8 @@ fun JetConversation(onCall: () -> Unit) {
                 onPickImages = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onCall = onCall,
                 resetScroll = { scope.launch { scrollState.scrollToItem(0) } },
-                modifier = Modifier.navigationBarsPadding().imePadding(),
+                modifier = Modifier,   // 0.53 键盘/导航栏留白统一由 MainScreen 做，这里不再叠
+
             )
         }
     }

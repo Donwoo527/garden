@@ -8,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -134,7 +136,8 @@ fun MainScreen() {
             }
         }
     }) { pad ->
-        Box(Modifier.padding(pad).fillMaxSize()) {
+        // 0.53 键盘只算一次：窗口不再自动缩(manifest adjustNothing)，这里统一垫键盘高度，并扣掉底栏 pad 已占的部分
+        Box(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
             when (tab) {
                 0 -> if (me.chen.laidian.AppState.safeMode) ChatScreen(onCall = startCall) else me.chen.laidian.ui.jet.JetConversation(onCall = startCall)
                 1 -> TerminalScreen()
