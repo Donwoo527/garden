@@ -43,7 +43,10 @@ private data class AppUse(val label: String, val pkg: String, val ms: Long)
 internal fun hasUsagePermission(ctx: Context): Boolean {
     val ops = ctx.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
     val mode = ops.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), ctx.packageName)
-    return mode == AppOpsManager.MODE_ALLOWED
+    // 0.50：部分 ROM 授权后返回 MODE_DEFAULT 而非 MODE_ALLOWED，按官方建议回退查权限本身
+    return if (mode == AppOpsManager.MODE_DEFAULT)
+        ctx.checkCallingOrSelfPermission(android.Manifest.permission.PACKAGE_USAGE_STATS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    else mode == AppOpsManager.MODE_ALLOWED
 }
 
 /** queryEvents 手算今日前台时长：RESUMED/PAUSED 配对，比 bucket 聚合准 */

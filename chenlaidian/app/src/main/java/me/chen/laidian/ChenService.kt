@@ -104,7 +104,8 @@ class ChenService : Service() {
         nm().cancel(NOTIF_USAGE)
         val usm = getSystemService(USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
         val now = System.currentTimeMillis()
-        val events = usm.queryEvents(now - 120_000, now)
+        // 0.50：窗口从 2 分钟放到 6 小时——她一锁屏 2 分钟内就没事件，第一条永远发不出去（0914 实测）；取窗口内最后一个前台即可
+        val events = usm.queryEvents(now - 6 * 3600_000L, now)
         val ev = android.app.usage.UsageEvents.Event()
         var pkg: String? = null
         var ts = 0L
@@ -121,8 +122,15 @@ class ChenService : Service() {
             .toRequestBody("application/json".toMediaType())
         val req = Request.Builder().url("http://${BuildConfig.SERVER_HOST}:8400/report").post(body).build()
         client.newCall(req).enqueue(object : okhttp3.Callback {
-            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
-            override fun onResponse(call: okhttp3.Call, response: Response) { response.close(); lastReportedApp = label }
+            // 0.50：失败不再静默——写到主页字幕区，她一眼能看到卡在哪
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                lastText.postValue("查岗上报失败: ${e.javaClass.simpleName} ${e.message?.take(50) ?: ""}")
+            }
+            override fun onResponse(call: okhttp3.Call, response: Response) {
+                val code = response.code; response.close()
+                if (code in 200..299) lastReportedApp = label
+                else lastText.postValue("查岗上报被拒: HTTP $code")
+            }
         })
     }
 
