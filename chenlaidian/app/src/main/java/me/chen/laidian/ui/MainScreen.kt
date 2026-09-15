@@ -99,12 +99,13 @@ fun MainScreen() {
     // 0.43 她点单：辰发朋友圈 dock主页图标也要红点 不点进主页也看得见
     val momentsUnread by ChatClient.momentsUnread.collectAsState()
     val startCall = { ctx.startActivity(Intent(ctx, CallActivity::class.java).putExtra("outgoing", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-    // 0.52 状态栏透明后，这块底色就是顶上那一条——跟着当前 tab 的底走，主页是新拟物灰、其余暖白
-    Scaffold(containerColor = if (tab == 2) Neu.Bg else C.Bg, bottomBar = {
+    // 0.56 底色和底栏跟当前皮肤走（0.52 时是主页灰、其余暖白两套混着）
+    val skin = LocalSkin.current
+    Scaffold(containerColor = skin.bg, bottomBar = {
         // 0.28 新拟物dock（她圈的参考图样式）：悬浮胶囊外框 五tab 当前页=凹陷(她的凹凸语言:选中=按下去的状态)
-        Box(Modifier.fillMaxWidth().background(Neu.Bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        Box(Modifier.fillMaxWidth().background(skin.bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Row(
-                Modifier.fillMaxWidth().height(62.dp).neuRaised(corner = 31.dp),
+                Modifier.fillMaxWidth().height(62.dp).raised(corner = 31.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -112,13 +113,13 @@ fun MainScreen() {
                     val sel = tab == i
                     Column(
                         Modifier.width(58.dp).height(50.dp)
-                            .then(if (sel) Modifier.neuSunken(25.dp) else Modifier)   // 0.35 凹坑改圆 跟胶囊外壳同族曲率
+                            .then(if (sel) Modifier.sunken(25.dp) else Modifier)   // 0.35 凹坑改圆 跟胶囊外壳同族曲率
                             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { tab = i },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Box {
-                            Icon(t.icon, contentDescription = t.label, tint = if (sel) Neu.Ink else Neu.Dark, modifier = Modifier.size(21.dp))
+                            Icon(t.icon, contentDescription = t.label, tint = if (sel) skin.ink else skin.muted, modifier = Modifier.size(21.dp))
                             if (i == 2 && momentsUnread > 0) {
                                 Box(
                                     Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-4).dp)
@@ -130,7 +131,7 @@ fun MainScreen() {
                                 }
                             }
                         }
-                        Text(t.label, fontSize = 10.sp, color = if (sel) Neu.Ink else Neu.Dark)
+                        Text(t.label, fontSize = 10.sp, color = if (sel) skin.ink else skin.muted)
                     }
                 }
             }
@@ -257,8 +258,8 @@ private fun SettingsMain(onFavorites: () -> Unit) {
         val i = Intent(ctx, ChenService::class.java).setAction(action)
         if (foreground) ContextCompat.startForegroundService(ctx, i) else ctx.startService(i)
     }
-    Column(Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-        Text("设置", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Ink, modifier = Modifier.padding(20.dp))
+    Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+        Text("设置", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink, modifier = Modifier.padding(20.dp))
         WhiteCard(Modifier.padding(horizontal = 16.dp)) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(56.dp).clip(CircleShape).background(C.Orange), contentAlignment = Alignment.Center) { Text("陈", color = Color.White, fontSize = 22.sp) }
@@ -275,9 +276,20 @@ private fun SettingsMain(onFavorites: () -> Unit) {
             IconCard("收藏的消息", Icons.Default.Star, C.Blue, Modifier.weight(1f)) { onFavorites() }
         }
         Spacer(Modifier.height(12.dp))
+        // 0.56 皮肤选择：换汤不换药——位置不动只换面。选中=凹（她的凹凸语言）
+        SectionTitle("皮肤")
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("皮肤/主题", Icons.Default.Face, C.Orange, Modifier.weight(1f)) { todo("皮肤") }
-            Spacer(Modifier.weight(1f))
+            SKINS.forEach { s ->
+                val sel = SkinState.current.key == s.key
+                Box(
+                    Modifier.weight(1f)
+                        .then(if (sel) Modifier.sunken(14.dp) else Modifier.pressable(14.dp) { SkinState.set(ctx, s) })
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(s.label, fontSize = 13.sp, color = if (sel) LocalSkin.current.accent else LocalSkin.current.ink)
+                }
+            }
         }
         Spacer(Modifier.height(20.dp))
         SectionTitle("我的资料")

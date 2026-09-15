@@ -37,7 +37,18 @@ private val Light = lightColorScheme(
     onTertiary = Color.White,
 )
 
+/** 0.56 皮肤入口：Material 的几个主色跟着当前 Skin 走，页面自己的面用 Modifier.raised()/sunken()/flat() */
 @Composable
 fun ChenTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Light, content = content)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.remember { SkinState.load(ctx); true }
+    val skin = SkinState.current
+    val scheme = Light.copy(
+        primary = skin.accent, secondary = skin.accent,
+        background = skin.bg, onBackground = skin.ink,
+        surface = skin.surface, onSurface = skin.ink,
+    )
+    androidx.compose.runtime.CompositionLocalProvider(LocalSkin provides skin) {
+        MaterialTheme(colorScheme = scheme, content = content)
+    }
 }

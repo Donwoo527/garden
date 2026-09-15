@@ -276,19 +276,19 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
 /** 0.29 新拟物凸卡（主页专用，别的页还用 Common.kt 的 WhiteCard） */
 @Composable
 private fun NeuCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Box(modifier.fillMaxWidth().neuRaised(18.dp)) { content() }
+    Box(modifier.fillMaxWidth().raised(18.dp)) { content() }   // 0.56 起走皮肤
 }
 
 /** 0.29 新拟物图标卡：凸台+彩色图标（她参考图的点缀风），按压整卡变凹 */
 @Composable
 private fun NeuIconCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(modifier.neuPressable(18.dp, onClick = onClick)) {
+    Box(modifier.pressable(18.dp, onClick = onClick)) {
         Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(44.dp).neuRaised(14.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(44.dp).raised(14.dp), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = title, tint = tint, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.height(8.dp))
-            Text(title, fontSize = 13.sp, color = Neu.Ink)
+            Text(title, fontSize = 13.sp, color = LocalSkin.current.ink)
         }
     }
 }
