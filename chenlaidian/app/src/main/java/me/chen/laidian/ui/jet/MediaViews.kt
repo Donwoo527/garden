@@ -91,34 +91,128 @@ fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) ->
                 modifier = Modifier.widthIn(max = THUMB).clip(RoundedCornerShape(12.dp))
                     .combinedClickable(onClick = { onOpen(images[0]) }, onLongClick = { menuFor = images[0] }))
         } else {
-            val n = images.size
-            val h = THUMB * 4 / 3
-            Box(
-                Modifier.width(THUMB + 12.dp).height(h + 12.dp).pointerInput(images) {
-                    var acc = 0f
-                    detectHorizontalDragGestures(onDragEnd = { acc = 0f }, onDragCancel = { acc = 0f }) { change, dx ->
-                        change.consume(); acc += dx
-                        if (acc > 40) { top = (top - 1 + n) % n; acc = 0f } else if (acc < -40) { top = (top + 1) % n; acc = 0f }
-                    }
-                },
-            ) {
-                // 后面的两张露 6dp 的边（0.69 照 PhotoStack 量的参数重画）
-                for (k in minOf(2, n - 1) downTo 1) {
-                    Box(Modifier.offset(x = (6 * k).dp, y = (6 * k).dp).size(THUMB, h)
-                        .background(Color.Black.copy(alpha = 0.10f + 0.06f * (2 - k)), RoundedCornerShape(12.dp)))
-                }
-                AsyncImage(model = ChatClient.mediaUrl(images[top]), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Crop,
-                    modifier = Modifier.size(THUMB, h).clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(onClick = { onOpen(images[top]) }, onLongClick = { menuFor = images[top] }))
-                Text("${top + 1}/$n", fontSize = 10.sp, color = Color.White,
-                    modifier = Modifier.align(Alignment.TopStart).padding(top = 4.dp, start = 4.dp)
-                        .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(8.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
-            }
+            PhotoStack(images, loader, onOpen = { i -> onOpen(images[i]) }, onLongPress = { i -> menuFor = images[i] }, onIndex = { top = it })
         }
         DropdownMenu(expanded = menuFor != null, onDismissRequest = { menuFor = null }) {
             DropdownMenuItem(text = { Text("存为表情") }, onClick = { menuFor?.let(onSticker); menuFor = null })
             DropdownMenuItem(text = { Text("收藏") }, onClick = { onFav(); menuFor = null })
         }
+    }
+}
+
+/**
+ * 微信式合并照片卡片（0.69）。设计参数来自 PhotoStack by Wren036 (https://github.com/Wren036/PhotoStack)
+ * —— 她逐帧量出来的：舞台 142×190、探边 15 每层再多 12、每层转 2.2° 缩 8%、快甩 0.4px/ms、恒定三层可见、
+ * 手指即进度条（前半程跟手 后半程沿轨迹回落到对侧探边位）、首尾 24 的弹性。PolyForm Noncommercial 1.0.0，个人用。
+ * 这是照参数在 Compose 里重写的，没有用它的代码。
+ */
+private val STAGE_W = 142.dp
+private val STAGE_H = 190.dp
+private const val PEEK = 15f
+private const val PEEK_STEP = 12f
+private const val ROT_STEP = 2.2f
+private const val SCALE_STEP = 0.08f
+private const val FLING_V = 0.4f        // px/ms
+private const val ELASTIC = 24f         // dp
+
+private data class Xf(val dx: Float, val scale: Float, val rot: Float, val alpha: Float)
+private fun lerp(a: Xf, b: Xf, t: Float) = Xf(a.dx + (b.dx - a.dx) * t, a.scale + (b.scale - a.scale) * t, a.rot + (b.rot - a.rot) * t, a.alpha + (b.alpha - a.alpha) * t)
+/** 静止摆位：相对顶卡的层深 d（负=左侧探边 正=右侧） */
+private fun slot(d: Int): Xf {
+    if (d == 0) return Xf(0f, 1f, 0f, 1f)
+    val k = kotlin.math.abs(d); val s = if (d < 0) -1f else 1f
+    return Xf(s * (PEEK + PEEK_STEP * (k - 1)), 1f - SCALE_STEP * k, s * ROT_STEP * k, if (k <= 2) 1f else 0f)
+}
+/** 恒定三层：顶卡 + 左右各一；到了首/末张，探边配额转到另一侧 */
+private fun visible(idx: Int, d: Int, n: Int): Boolean {
+    val i = idx + d
+    if (i !in 0 until n || kotlin.math.abs(d) > 2) return false
+    if (kotlin.math.abs(d) <= 1) return true
+    val other = idx - d / 2          // ±2 只在对侧 ±1 不存在时露出
+    return other !in 0 until n
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun PhotoStack(images: List<String>, loader: ImageLoader, onOpen: (Int) -> Unit, onLongPress: (Int) -> Unit, onIndex: (Int) -> Unit = {}) {
+    val n = images.size
+    var index by remember(images) { mutableIntStateOf(0) }
+    val p = remember { androidx.compose.animation.core.Animatable(0f) }   // 擦洗进度 -1..1 正=翻到下一张
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val screenW = with(density) { LocalConfiguration.current.screenWidthDp.dp.toPx() }
+    val halfW = with(density) { (STAGE_W / 2).toPx() }
+    val stageW = with(density) { STAGE_W.toPx() }
+    val prog = p.value
+    val dir = if (prog >= 0f) 1 else -1
+    val t = kotlin.math.abs(prog)
+    val t2 = ((t - 0.5f) / 0.5f).coerceIn(0f, 1f)
+    val canGo = (index + dir) in 0 until n
+
+    fun commit(d: Int) { scope.launch { p.animateTo(d.toFloat(), androidx.compose.animation.core.tween(220)); index = (index + d).coerceIn(0, n - 1); onIndex(index); p.snapTo(0f) } }
+    fun cancel() { scope.launch { p.animateTo(0f, androidx.compose.animation.core.spring(stiffness = 600f)) } }
+
+    Box(
+        Modifier.width(STAGE_W + 44.dp).height(STAGE_H + 8.dp).pointerInput(images) {
+            var startX = 0f; var denom = 1f; var lastT = 0L; var lastX = 0f; var v = 0f; var moved = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { o -> startX = o.x; lastX = o.x; lastT = System.currentTimeMillis(); v = 0f; moved = 0f; denom = 1f },
+                onDragEnd = {
+                    val cur = p.value; val d = if (cur >= 0) 1 else -1
+                    val go = (index + d) in 0 until n
+                    val fling = kotlin.math.abs(v) >= FLING_V && (v < 0) == (d > 0) && kotlin.math.abs(moved) >= 10f
+                    if (go && (kotlin.math.abs(cur) >= 0.5f || fling)) commit(d) else cancel()
+                },
+                onDragCancel = { cancel() },
+            ) { change, dx ->
+                change.consume()
+                val now = System.currentTimeMillis(); val dt = (now - lastT).coerceAtLeast(1)
+                v = 0.7f * (dx / dt) + 0.3f * v; lastT = now; lastX = change.position.x
+                moved = change.position.x - startX
+                val d = if (moved < 0) 1 else -1
+                // 行程归一：手指起点到该方向屏幕边缘
+                denom = if (moved < 0) startX.coerceAtLeast(1f) else (screenW - startX).coerceAtLeast(1f)
+                val raw = (kotlin.math.abs(moved) / denom).coerceIn(0f, 1f) * d
+                val go = (index + d) in 0 until n
+                // 首尾弹性：没有下一张时只让走 24dp
+                val elastic = with(density) { ELASTIC.dp.toPx() }
+                val value = if (go) raw else (kotlin.math.abs(moved).coerceAtMost(elastic) / halfW * 0.5f) * d
+                scope.launch { p.snapTo(value) }
+            }
+        },
+        contentAlignment = Alignment.Center,
+    ) {
+        // 要画哪些：静止可见的 + 翻完后会可见的（进场卡）
+        val slots = (-3..3).filter { d -> (index + d) in 0 until n && (visible(index, d, n) || (t > 0.5f && canGo && visible(index + dir, d - dir, n))) }
+        // 远的先画
+        for (d in slots.sortedByDescending { kotlin.math.abs(it) }) {
+            val from = slot(d).let { if (visible(index, d, n)) it else it.copy(alpha = 0f) }
+            val toD = d - dir
+            val to = if (canGo) slot(toD).let { if (visible(index + dir, toD, n)) it else it.copy(alpha = 0f) } else from
+            val xf = when {
+                d == 0 -> {
+                    // 顶卡：前半程跟手滑出（最多半卡宽 微旋）后半程沿轨迹落入对侧探边位
+                    val peak = Xf(-dir * halfW / with(density) { 1.dp.toPx() }, 1f, -dir * 3f, 1f)
+                    if (t <= 0.5f) lerp(slot(0), peak, t / 0.5f) else lerp(peak, to, t2)
+                }
+                else -> if (t <= 0.5f) from else lerp(from, to, t2)
+            }
+            val i = index + d
+            val zTop = d == 0 && t <= 0.5f
+            AsyncImage(
+                model = ChatClient.mediaUrl(images[i]), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Crop,
+                modifier = Modifier.size(STAGE_W, STAGE_H)
+                    .graphicsLayer {
+                        translationX = with(density) { xf.dx.dp.toPx() }; scaleX = xf.scale; scaleY = xf.scale; rotationZ = xf.rot; alpha = xf.alpha
+                        shadowElevation = if (zTop) 6f else 0f
+                    }
+                    .clip(RoundedCornerShape(10.dp))
+                    .then(if (d == 0) Modifier.combinedClickable(onClick = { onOpen(index) }, onLongClick = { onLongPress(index) }) else Modifier),
+            )
+        }
+        Text("${index + 1}/$n", fontSize = 10.sp, color = Color.White,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 26.dp, bottom = 10.dp)
+                .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(8.dp)).padding(horizontal = 5.dp, vertical = 1.dp))
     }
 }
 

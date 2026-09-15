@@ -106,15 +106,15 @@ fun MainScreen() {
         // 0.28 新拟物dock（她圈的参考图样式）：悬浮胶囊外框 五tab 当前页=凹陷(她的凹凸语言:选中=按下去的状态)
         Box(Modifier.fillMaxWidth().background(skin.bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Row(
-                Modifier.fillMaxWidth().height(62.dp).raised(corner = 31.dp),
+                Modifier.fillMaxWidth().height(66.dp).raised(corner = 33.dp),   // 0915 她：图标 24 后坑顶格 整体放高
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TABS.forEachIndexed { i, t ->
                     val sel = tab == i
                     Column(
-                        Modifier.width(58.dp).height(50.dp)
-                            .then(if (sel) Modifier.sunken(25.dp) else Modifier)   // 0.35 凹坑改圆 跟胶囊外壳同族曲率
+                        Modifier.width(60.dp).height(56.dp)
+                            .then(if (sel) Modifier.sunken(28.dp) else Modifier)   // 0.35 凹坑改圆 跟胶囊外壳同族曲率；0915 坑放大 图标下移 字 10
                             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { tab = i },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
@@ -132,7 +132,8 @@ fun MainScreen() {
                                 }
                             }
                         }
-                        Text(t.label, fontSize = 12.sp, color = if (sel) skin.ink else skin.muted)   // 0915 她定的 12
+                        Spacer(Modifier.height(3.dp))
+                        Text(t.label, fontSize = 10.sp, color = if (sel) skin.ink else skin.muted)   // 0915 她先定 12 再改 10（坑顶格）
                     }
                 }
             }
