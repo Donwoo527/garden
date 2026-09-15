@@ -170,7 +170,7 @@ fun JetConversation(onCall: () -> Unit) {
                         val mime = ctx.contentResolver.getType(u) ?: "image/jpeg"
                         val ext = when (mime) { "image/png" -> ".png"; "image/webp" -> ".webp"; "image/gif" -> ".gif"; "image/heic", "image/heif" -> ".heic"; else -> ".jpg" }
                         ctx.contentResolver.openInputStream(u)?.use { it.readBytes() }?.let { ChatApi.uploadBytes(ctx, it, "orig$ext", mime) }
-                    } else ImageUtil.compress(ctx, u)?.let { ChatApi.uploadImage(ctx, it) }
+                    } else ImageUtil.compressOrRawUpload(ctx, u)   // 0915 压不动的（动图/webp）原样传 别再"发送失败"
                 }
             }
             val ok = urls.isNotEmpty() && withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, urls, "") }

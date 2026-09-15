@@ -10,17 +10,38 @@ import java.io.ByteArrayOutputStream
 object ImageUtil {
     private const val MAX = 1600
 
+    /** 压缩；失败返回 null 并把原因写进 ChatApi.lastError（0915 她那条"表情没存上：读图/压缩失败"之前只有四个字） */
     fun compress(ctx: Context, uri: Uri): ByteArray? {
         return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) } ?: return null
+            ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                ?: run { ChatApi.lastError = "打不开相册给的地址"; return null }
+            if (bounds.outWidth <= 0) { ChatApi.lastError = "解码失败（${bounds.outMimeType ?: "未知格式"}）"; return null }
             var sample = 1
             while (bounds.outWidth / sample > MAX * 2 || bounds.outHeight / sample > MAX * 2) sample *= 2
             val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-            val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) } ?: return null
+            val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+                ?: run { ChatApi.lastError = "解码失败（${bounds.outMimeType ?: "未知格式"}）"; return null }
             val scale = minOf(1f, MAX.toFloat() / maxOf(bmp.width, bmp.height))
             val out = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
             ByteArrayOutputStream().also { out.compress(Bitmap.CompressFormat.JPEG, 82, it) }.toByteArray()
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { ChatApi.lastError = "读图 ${e.javaClass.simpleName}${e.message?.let { ": " + it.take(60) } ?: ""}"; null }
+    }
+
+    /** 0915 兜底：解码不了就原样读出来（动图/webp/奇怪格式），返回 字节+mime+扩展名 */
+    fun readRaw(ctx: Context, uri: Uri): Triple<ByteArray, String, String>? {
+        return try {
+            val mime = ctx.contentResolver.getType(uri) ?: "image/jpeg"
+            val ext = when (mime) { "image/png" -> ".png"; "image/webp" -> ".webp"; "image/gif" -> ".gif"; "image/heic", "image/heif" -> ".heic"; else -> ".jpg" }
+            val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: run { ChatApi.lastError = "打不开相册给的地址"; return null }
+            Triple(bytes, mime, ext)
+        } catch (e: Exception) { ChatApi.lastError = "读原图 ${e.javaClass.simpleName}${e.message?.let { ": " + it.take(60) } ?: ""}"; null }
+    }
+
+    /** 压得动就压（JPEG）；压不动原样传。返回 /media 地址 */
+    fun compressOrRawUpload(ctx: Context, uri: Uri): String? {
+        compress(ctx, uri)?.let { return ChatApi.uploadImage(ctx, it) }
+        val (bytes, mime, ext) = readRaw(ctx, uri) ?: return null
+        return ChatApi.uploadBytes(ctx, bytes, "raw$ext", mime)
     }
 }

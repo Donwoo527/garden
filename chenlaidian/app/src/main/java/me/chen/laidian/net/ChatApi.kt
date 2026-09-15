@@ -87,6 +87,9 @@ object ChatApi {
     /** 0.38 添加收藏表情 */
     fun addSticker(ctx: Context, url: String): Boolean = postJson(ctx, "/stickers", JSONObject().put("url", url).put("who", "xiaochen"))
 
+    /** 0915 存错了能删 */
+    fun deleteSticker(ctx: Context, url: String): Boolean = postJson(ctx, "/stickers/delete", JSONObject().put("url", url))
+
     /** 收藏一条消息（快照） */
     fun addFavorite(ctx: Context, m: me.chen.laidian.model.Msg): Boolean {
         val snap = JSONObject().put("id", m.id).put("who", m.who).put("type", m.msgType).put("text", m.text).put("ts", m.ts)

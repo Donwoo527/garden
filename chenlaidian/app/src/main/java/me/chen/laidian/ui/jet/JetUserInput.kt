@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -87,6 +88,7 @@ import android.widget.Toast
 enum class InputSelector { NONE, EMOJI, PLUS }
 
 /** 输入栏（照 Jetchat）：文本框 + 表情/图片/电话 三个选择器 + 发送。表情面板内置。 */
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun JetUserInput(
     insertText: String? = null,
@@ -191,7 +193,10 @@ fun JetUserInput(
                         // 0915 ⑤ 她报"存不进去"：哪一步断了必须说出来
                         ChatApi.lastError = null
                         val ok = withContext(Dispatchers.IO) {
-                            ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }?.let { ChatApi.addSticker(ctx, it) } ?: false
+                            // 0915 表情原样存（动图才会动）；读不出来再试压缩
+                            val (bytes, mime, ext) = ImageUtil.readRaw(ctx, uri) ?: Triple(null, "", "")
+                            val url = if (bytes != null) ChatApi.uploadBytes(ctx, bytes, "sticker$ext", mime) else ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }
+                            url?.let { ChatApi.addSticker(ctx, it) } ?: false
                         }
                         if (!ok) Toast.makeText(ctx, "表情没存上：" + (ChatApi.lastError ?: "读图/压缩失败"), Toast.LENGTH_LONG).show()
                         withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
@@ -225,11 +230,25 @@ fun JetUserInput(
                                                     .clickable { stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                                                     contentAlignment = Alignment.Center) { Text("＋", fontSize = 26.sp, color = Neu.Ink) }
                                             } else {
-                                                AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = stickerLoader, contentDescription = "表情",
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.padding(4.dp).size(76.dp)
-                                                        .background(Color.White, RoundedCornerShape(12.dp))
-                                                        .clickable { onSendSticker(u); dismiss() })
+                                                // 0915 长按→删除（她存错了要能删）
+                                                var delMenu by remember(u) { mutableStateOf(false) }
+                                                Box {
+                                                    AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = stickerLoader, contentDescription = "表情",
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.padding(4.dp).size(76.dp)
+                                                            .background(Color.White, RoundedCornerShape(12.dp))
+                                                            .combinedClickable(onClick = { onSendSticker(u); dismiss() }, onLongClick = { delMenu = true }))
+                                                    androidx.compose.material3.DropdownMenu(expanded = delMenu, onDismissRequest = { delMenu = false }) {
+                                                        androidx.compose.material3.DropdownMenuItem(text = { Text("删除这张") }, onClick = {
+                                                            delMenu = false
+                                                            scope.launch {
+                                                                val ok = withContext(Dispatchers.IO) { ChatApi.deleteSticker(ctx, u) }
+                                                                if (!ok) Toast.makeText(ctx, "没删掉：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                                                                withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
+                                                            }
+                                                        })
+                                                    }
+                                                }
                                             }
                                         }
                                         repeat(4 - row.size) { Spacer(Modifier.size(84.dp)) }
