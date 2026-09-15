@@ -20,6 +20,7 @@ data class Msg(
     val ts: Double,
     val images: List<String> = emptyList(),
     val filename: String? = null,
+    val duration: Double? = null,   // 0915 语音时长（秒），服务端 ffprobe 算的；老消息没有
 ) {
     val isChen get() = who == "chen"
 
@@ -51,6 +52,7 @@ data class Msg(
                 ts = o.optDouble("ts", 0.0),
                 images = o.optJSONArray("images")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optString(i).takeIf { it.isNotBlank() } } } ?: emptyList(),
                 filename = o.str("filename"),
+                duration = if (o.has("duration") && !o.isNull("duration")) o.optDouble("duration").takeIf { it > 0 } else null,
             )
         }
 

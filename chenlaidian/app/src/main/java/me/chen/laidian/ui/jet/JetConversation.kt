@@ -56,6 +56,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
@@ -453,18 +454,45 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                     }
                     when {
                         m.msgType == "voice" && m.voice != null -> {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                // 0915 她的图：圆形播放钮（波形和时长等有数据了再画）
-                                Box(
-                                    Modifier.padding(start = 6.dp).size(34.dp).clip(CircleShape).background(skin.accent.copy(alpha = 0.25f))
-                                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { VoicePlayer.play(ctx, ChatClient.mediaUrl(m.voice)) },
-                                    contentAlignment = Alignment.Center,
-                                ) { Icon(Icons.Default.PlayArrow, contentDescription = "播放", tint = skin.accent) }
-                                Spacer(Modifier.width(10.dp))
-                                Text("语音", color = fg, fontSize = 15.sp)
-                                IconButton(onClick = { transcript = !transcript }) { Icon(if (transcript) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "文字版", tint = fg) }
+                            // 0915 她要的（对着网页版）：圆播放钮 + 波形 + 右边秒数 + 播放时下面进度条 + "查看文字版"
+                            val vs by VoicePlayer.state.collectAsState()
+                            val url = ChatClient.mediaUrl(m.voice)
+                            val playing = vs?.url == url
+                            val progress = if (playing) vs?.progress ?: 0f else 0f
+                            Column(Modifier.widthIn(min = 220.dp).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        Modifier.size(34.dp).clip(CircleShape).background(skin.accent.copy(alpha = 0.25f))
+                                            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { VoicePlayer.toggle(ctx, url) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        if (playing) Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {   // 暂停：两根竖条（核心图标集里没有 Pause）
+                                            Box(Modifier.width(4.dp).height(14.dp).background(skin.accent, RoundedCornerShape(1.dp)))
+                                            Box(Modifier.width(4.dp).height(14.dp).background(skin.accent, RoundedCornerShape(1.dp)))
+                                        } else Icon(Icons.Default.PlayArrow, contentDescription = "播放", tint = skin.accent)
+                                    }
+                                    Spacer(Modifier.width(10.dp))
+                                    VoiceBars(seed = m.id, progress = progress, color = skin.accent, modifier = Modifier.weight(1f).height(28.dp))
+                                    m.duration?.let { d ->
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("${(d / 60).toInt()}:${"%02d".format((d % 60).roundToInt())}", fontSize = 12.sp, color = skin.muted)
+                                    }
+                                }
+                                if (playing) LinearProgressIndicator(
+                                    progress = { progress }, color = skin.accent, trackColor = skin.accent.copy(alpha = 0.2f),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(2.dp),
+                                )
+                                if (m.text.isNotBlank()) {
+                                    Row(
+                                        Modifier.padding(top = 6.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { transcript = !transcript },
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text("查看文字版", fontSize = 12.sp, color = skin.accent)
+                                        Icon(if (transcript) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "文字版", tint = skin.accent, modifier = Modifier.size(16.dp))
+                                    }
+                                    if (transcript) Text(m.text, color = fg, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 4.dp))
+                                }
                             }
-                            if (transcript && m.text.isNotBlank()) Text(m.text, color = fg, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                         }
                         m.msgType == "file" -> Text("📎 " + (m.filename ?: "文件"), color = fg, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
                         m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg)
@@ -486,6 +514,27 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                 AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
                     modifier = Modifier.widthIn(max = 240.dp).padding(4.dp).clip(RoundedCornerShape(16.dp)))
             }
+        }
+    }
+}
+
+/** 语音波形：20 根 3dp 的条 高 8–26（网页版同款 随机），种子用消息 id 让同一条每次长得一样；播过的部分实色 没播的半透 */
+@Composable
+private fun VoiceBars(seed: String, progress: Float, color: Color, modifier: Modifier = Modifier) {
+    val heights = remember(seed) { val r = kotlin.random.Random(seed.hashCode()); List(20) { 8 + r.nextFloat() * 18 } }
+    androidx.compose.foundation.Canvas(modifier) {
+        val n = heights.size
+        val barW = 3.dp.toPx(); val gap = (size.width - n * barW) / (n - 1).coerceAtLeast(1)
+        val played = (progress * n)
+        heights.forEachIndexed { i, hDp ->
+            val h = hDp.dp.toPx().coerceAtMost(size.height)
+            val x = i * (barW + gap)
+            drawRoundRect(
+                color = if (i < played) color else color.copy(alpha = 0.4f),
+                topLeft = androidx.compose.ui.geometry.Offset(x, (size.height - h) / 2),
+                size = androidx.compose.ui.geometry.Size(barW, h),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 2),
+            )
         }
     }
 }
