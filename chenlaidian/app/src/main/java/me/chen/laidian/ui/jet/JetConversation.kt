@@ -378,9 +378,11 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 val older = messages.getOrNull(index + 1)
                 val isFirstMessageByAuthor = newer?.who != m.who      // 这一串里最新的一条 → 下面留大间距
                 val isLastMessageByAuthor = older?.who != m.who       // 这一串里最早的一条 → 显示头像和名字
+                // 0915 她：同一个人同一分钟连发的 只在最后一条下面标时间
+                val showTime = newer == null || newer.who != m.who || newer.timeLabel() != m.timeLabel()
                 item(key = m.id) {
                     if (m.who == "system") SystemPill(m.text)
-                    else MessageRow(m, all.firstOrNull { it.id == m.replyTo }, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor,
+                    else MessageRow(m, all.firstOrNull { it.id == m.replyTo }, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor, showTime = showTime,
                         read = m.id in readIds, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onFav = onFav, onCopy = onCopy)
                 }
                 val day = m.dayLabel()
@@ -404,7 +406,7 @@ private fun SystemPill(text: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, read: Boolean,
+private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, showTime: Boolean, read: Boolean,
                        loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
@@ -415,8 +417,8 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
             // 0.20 按她设计稿：不显示昵称行(头像已区分人)，时间挪到气泡下方小字
             if (!isUserMe && !m.thinking.isNullOrBlank()) ThinkingFold(m.thinking)
             ChatItemBubble(m, quoted, isUserMe, loader, onOpenImage, onQuote, onForward, onFav, onCopy)
-            TimeUnder(m.timeLabel(), isUserMe, read)
-            Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 2.dp))
+            if (showTime) TimeUnder(m.timeLabel(), isUserMe, read)
+            Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 3.dp))
         }
         if (isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = false, url = avatarXiaochen, loader = loader)
     }
@@ -474,7 +476,8 @@ private fun TimeUnder(time: String, isUserMe: Boolean, read: Boolean) {
 private fun ThinkingFold(thinking: String) {
     var open by remember { mutableStateOf(false) }
     // 0915 她的图：收起时箭头朝右 展开朝下（"点一下左边箭头可以展开"）
-    Row(Modifier.clickable { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    // 0915 她：点的时候出灰框——那是点击水波纹(indication) 关掉
+    Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, contentDescription = null, tint = C.Grey, modifier = Modifier.size(18.dp))
         Text("思考", fontSize = 13.sp, color = C.Grey)
     }
@@ -484,7 +487,7 @@ private fun ThinkingFold(thinking: String) {
     val scope = rememberCoroutineScope()
     if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            Text(thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp)
+            Text(thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 17.sp)
             Text(
                 if (tr == null) "翻译" else "收起翻译", fontSize = 12.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
                 modifier = Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
@@ -617,7 +620,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                                         Text("查看文字版", fontSize = 12.sp, color = skin.accent)
                                         Icon(if (transcript) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "文字版", tint = skin.accent, modifier = Modifier.size(16.dp))
                                     }
-                                    if (transcript) Text(m.text, color = fg, fontSize = 15.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 4.dp))
+                                    if (transcript) Text(m.text, color = fg, fontSize = 15.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 4.dp))
                                 }
                             }
                         }
@@ -650,7 +653,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                     }
                     translated?.let { t ->
                         HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = fg.copy(alpha = 0.15f))
-                        Text(t, fontSize = 13.sp, lineHeight = 19.sp, color = fg.copy(alpha = 0.78f), modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                        Text(t, fontSize = 13.sp, lineHeight = 17.sp, color = fg.copy(alpha = 0.78f), modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
                     }
                 }
             }
@@ -711,7 +714,7 @@ private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color) {
     val styled = messageFormatter(text = text, primary = false)   // 0915 两边气泡都是浅底深字 链接统一用强调色
     ClickableText(
         text = styled,
-        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 20.sp, color = color),
+        style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 18.sp, color = color),   // 0915 她：行距 1.43→1.25
         modifier = Modifier.padding(horizontal = 11.dp, vertical = 10.dp),   // 0915 她：左右−1 上下−2
         onClick = { off ->
             styled.getStringAnnotations(start = off, end = off).firstOrNull()?.let { a ->

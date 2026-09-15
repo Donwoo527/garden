@@ -119,7 +119,7 @@ fun MainScreen() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Box {
+                        Box(Modifier.padding(top = 4.dp)) {   // 0915 她第二次说顶格 再下移 4
                             Icon(androidx.compose.ui.res.painterResource(t.icon), contentDescription = t.label, tint = if (sel) skin.ink else skin.muted, modifier = Modifier.size(24.dp))   // 0915 她定的 24
                             if (i == 2 && momentsUnread > 0) {
                                 Box(

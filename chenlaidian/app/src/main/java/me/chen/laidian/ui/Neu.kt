@@ -24,10 +24,11 @@ import androidx.compose.ui.unit.dp
  * 规范（她定的）：容器/按钮=凸，输入区=凹；按下去凸变凹，松手弹回。
  */
 object Neu {
-    val Bg = Color(0xFFE7EAF0)        // 同色底（新拟物的地基，控件和背景一体）
+    // 0915 她："太冷了 不够温馨"——从冷灰蓝(E7EAF0/A6ABBD/4A4F5C)整体拉暖
+    val Bg = Color(0xFFECE8E2)        // 同色底（新拟物的地基，控件和背景一体）暖灰
     val Light = Color(0xFFFFFFFF)
-    val Dark = Color(0xFFA6ABBD)
-    val Ink = Color(0xFF4A4F5C)       // 这套底色上的文字/图标色
+    val Dark = Color(0xFFB9B0A4)      // 暗影偏暖
+    val Ink = Color(0xFF45403A)       // 这套底色上的文字/图标色 暖墨
 }
 
 /** 凸起：控件后方画两个反向偏移的模糊色块（左上亮、右下暗） */
