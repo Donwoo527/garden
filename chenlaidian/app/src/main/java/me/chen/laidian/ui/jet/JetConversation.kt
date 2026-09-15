@@ -117,6 +117,7 @@ import me.chen.laidian.ui.DotsAvatar
 import me.chen.laidian.ui.raised
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.text.style.TextOverflow
 import java.text.SimpleDateFormat
@@ -225,7 +226,7 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
             BarIcon(rememberVectorPainter(Icons.Default.KeyboardArrowLeft), "返回", onInfo)
             Spacer(Modifier.width(6.dp))
             Box(
-                Modifier.size(38.dp).raised(19.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),
+                Modifier.size(38.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),   // 0915 她：头像不用刻意凸起
                 contentAlignment = Alignment.Center,
             ) { DotsAvatar(big = 12.dp, small = 8.dp, gap = 4.dp, online = null, box = 30.dp) }
             Spacer(Modifier.width(10.dp))
@@ -377,8 +378,9 @@ private fun TimeUnder(time: String, isUserMe: Boolean, read: Boolean) {
 @Composable
 private fun ThinkingFold(thinking: String) {
     var open by remember { mutableStateOf(false) }
+    // 0915 她的图：收起时箭头朝右 展开朝下（"点一下左边箭头可以展开"）
     Row(Modifier.clickable { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp, contentDescription = null, tint = C.Grey, modifier = Modifier.size(16.dp))
+        Icon(if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, contentDescription = null, tint = C.Grey, modifier = Modifier.size(18.dp))
         Text("思考", fontSize = 13.sp, color = C.Grey)
     }
     if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
@@ -395,8 +397,10 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf(false) }
-    val bg = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (isUserMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    // 0915 她的图：辰浅蓝在左 她浅橘在右 字都是深色；颜色归皮肤管
+    val skin = me.chen.laidian.ui.LocalSkin.current
+    val bg = if (isUserMe) skin.bubbleMe else skin.bubbleChen
+    val fg = skin.ink
     val shape = if (isUserMe) MeBubbleShape else ChenBubbleShape
     // 0.19 她的规矩：气泡最远不越过对面头像那条线（两侧头像列各 54dp + 8dp 余量）
     val maxW = (LocalConfiguration.current.screenWidthDp - 116).dp
@@ -425,18 +429,38 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                 .combinedClickable(onClick = {}, onLongClick = { menu = true })) {
                 Column(Modifier.padding(if (m.msgType == "voice") 6.dp else 0.dp)) {
                     quoted?.let { q ->
-                        Row(Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp).background(fg.copy(alpha = 0.08f), RoundedCornerShape(8.dp))) {
-                            Box(Modifier.width(3.dp).height(36.dp).background(fg.copy(alpha = 0.5f)))
-                            Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-                                Text(if (q.isChen) "辰" else "小陈", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = fg)
-                                Text(q.text.take(80), fontSize = 13.sp, color = fg.copy(alpha = 0.8f), maxLines = 2)
+                        // 0915 她的图：引用框 = 左竖条(强调色) + 名字 + 右上引号 + 折叠箭头；收起一行 展开四行；回复正文在下面（tg 那种）
+                        var qOpen by remember(q.id) { mutableStateOf(false) }
+                        val bar = if (q.isChen) skin.accent else C.Orange
+                        Row(
+                            Modifier.padding(start = 12.dp, top = 10.dp, end = 12.dp)
+                                .background(fg.copy(alpha = 0.07f), RoundedCornerShape(8.dp))
+                                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { qOpen = !qOpen },
+                        ) {
+                            Box(Modifier.width(4.dp).height(if (qOpen) 72.dp else 44.dp).background(bar, RoundedCornerShape(2.dp)))
+                            Column(Modifier.weight(1f).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(if (q.isChen) "辰" else "小陈", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = bar, modifier = Modifier.weight(1f))
+                                    Text("”", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = bar)
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(q.text.ifBlank { if (q.msgType == "voice") "[语音]" else "[图片]" }, fontSize = 13.sp, color = fg.copy(alpha = 0.8f),
+                                        maxLines = if (qOpen) 4 else 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    Icon(if (qOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "展开引用", tint = bar, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }
                     when {
                         m.msgType == "voice" && m.voice != null -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { VoicePlayer.play(ctx, ChatClient.mediaUrl(m.voice)) }) { Icon(Icons.Default.PlayArrow, contentDescription = "播放", tint = fg) }
+                                // 0915 她的图：圆形播放钮（波形和时长等有数据了再画）
+                                Box(
+                                    Modifier.padding(start = 6.dp).size(34.dp).clip(CircleShape).background(skin.accent.copy(alpha = 0.25f))
+                                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { VoicePlayer.play(ctx, ChatClient.mediaUrl(m.voice)) },
+                                    contentAlignment = Alignment.Center,
+                                ) { Icon(Icons.Default.PlayArrow, contentDescription = "播放", tint = skin.accent) }
+                                Spacer(Modifier.width(10.dp))
                                 Text("语音", color = fg, fontSize = 15.sp)
                                 IconButton(onClick = { transcript = !transcript }) { Icon(if (transcript) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = "文字版", tint = fg) }
                             }
@@ -469,7 +493,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
 @Composable
 private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color) {
     val uriHandler = LocalUriHandler.current
-    val styled = messageFormatter(text = text, primary = isUserMe)
+    val styled = messageFormatter(text = text, primary = false)   // 0915 两边气泡都是浅底深字 链接统一用强调色
     ClickableText(
         text = styled,
         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 20.sp, color = color),

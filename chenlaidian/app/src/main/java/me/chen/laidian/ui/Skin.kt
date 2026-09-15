@@ -31,6 +31,9 @@ abstract class Skin {
     abstract val accent: Color    // 唯一强调色（她参考图那种：全靠一个色说话）
     abstract val line: Color
     open val corner: Dp = 18.dp
+    /** 聊天气泡：她 0915 的图——辰浅蓝在左、她浅橘在右，字都是 ink */
+    open val bubbleChen: Color = Color(0xFFCFE3F0)
+    open val bubbleMe: Color = Color(0xFFF3E4D6)
     /** 凸起的面：卡片、按钮 */
     abstract fun raised(m: Modifier, corner: Dp): Modifier
     /** 凹陷的面：输入框、槽 */
