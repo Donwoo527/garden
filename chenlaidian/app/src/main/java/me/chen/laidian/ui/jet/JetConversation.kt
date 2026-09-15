@@ -496,7 +496,7 @@ private fun JumpToBottom(enabled: Boolean, onClicked: () -> Unit, modifier: Modi
 @Composable
 private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: () -> Unit, onCall: () -> Unit, onHistory: () -> Unit) {
     val ctx = LocalContext.current
-    AlertDialog(onDismissRequest = onDismiss, confirmButton = {}, containerColor = C.Bg, text = {
+    AlertDialog(onDismissRequest = onDismiss, confirmButton = {}, containerColor = me.chen.laidian.ui.LocalSkin.current.bg, text = {
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().height(90.dp).background(Brush.verticalGradient(listOf(Color(0xFF8FB0DA), Color(0xFFC9D8EA))), RoundedCornerShape(12.dp)))
             Surface(shape = RoundedCornerShape(16.dp), color = C.Surface, shadowElevation = 2.dp, modifier = Modifier.size(72.dp).offset(y = (-36).dp)) {

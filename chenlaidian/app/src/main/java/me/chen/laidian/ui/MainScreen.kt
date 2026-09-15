@@ -165,7 +165,7 @@ private fun ToolsScreen() {
     val ctx = LocalContext.current
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-    Column(Modifier.fillMaxSize().background(C.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
+    Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
         Text("辰的百宝箱", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Ink, modifier = Modifier.padding(20.dp))
         SectionTitle("内容")
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -218,10 +218,10 @@ private fun FavoritesScreen(onBack: () -> Unit) {
     var items by remember { mutableStateOf<List<Pair<String, me.chen.laidian.model.Msg>>>(emptyList()) }
     var loaded by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { items = withContext(Dispatchers.IO) { ChatApi.favorites(ctx) } ?: emptyList(); loaded = true }
-    Column(Modifier.fillMaxSize().background(C.Bg)) {
+    Column(Modifier.fillMaxSize().background(LocalSkin.current.bg)) {
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = C.Ink) }
-            Text("收藏的消息", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = LocalSkin.current.ink) }
+            Text("收藏的消息", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink)
         }
         if (loaded && items.isEmpty()) Text("还没收藏过 长按聊天气泡→收藏", color = C.Grey, modifier = Modifier.padding(24.dp))
         LazyColumn(Modifier.fillMaxSize()) {
@@ -314,6 +314,13 @@ private fun SettingsMain(onFavorites: () -> Unit) {
                 Column(Modifier.padding(16.dp)) {
                     Text("电话服务：$svcStatus", fontSize = 13.sp, color = C.Ink)
                     Text("聊天后端：${if (connected) "已连接" else "未连接"}", fontSize = 13.sp, color = C.Ink)
+                    // 0.57 她画 Figma 要准数：这台屏幕多少 dp、几倍密度（0915 她问"我手机真的是 360×800 吗"）
+                    val dens = androidx.compose.ui.platform.LocalDensity.current.density
+                    val (pw, ph) = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        val b = (ctx.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager).currentWindowMetrics.bounds
+                        b.width() to b.height()   // 整块屏 含状态栏和导航条（Configuration.screenHeightDp 会扣掉它们）
+                    } else ctx.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+                    Text("屏幕：${(pw / dens).toInt()}×${(ph / dens).toInt()} dp（${pw}×${ph} px @${"%.2f".format(dens)}x）", fontSize = 13.sp, color = C.Ink)
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { svc(ChenService.ACTION_START, true) }, modifier = Modifier.fillMaxWidth()) { Text("重新上线") }
                     OutlinedButton(onClick = { svc(ChenService.ACTION_TEST_CALL, true) }, modifier = Modifier.fillMaxWidth()) { Text("测试来电（本地）") }

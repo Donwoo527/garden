@@ -49,7 +49,7 @@ fun DotsAvatar(big: Dp = 14.dp, small: Dp = 9.dp, gap: Dp = 6.dp, online: Boolea
         }
         // 在线灯：单独挂在头像框右下角（.header-online-dot 10px + 2px 纸色描边），不贴着点
         if (online != null) {
-            Box(Modifier.align(Alignment.BottomEnd).size(14.dp).clip(CircleShape).background(C.Bg), contentAlignment = Alignment.Center) {
+            Box(Modifier.align(Alignment.BottomEnd).size(14.dp).clip(CircleShape).background(LocalSkin.current.bg), contentAlignment = Alignment.Center) {
                 Box(Modifier.size(10.dp).clip(CircleShape).background(if (online) C.Green else C.Grey))
             }
         }
@@ -59,26 +59,25 @@ fun DotsAvatar(big: Dp = 14.dp, small: Dp = 9.dp, gap: Dp = 6.dp, online: Boolea
 /** 主页/百宝箱那种：白卡 + 彩色圆角图标 + 标题 */
 @Composable
 fun IconCard(title: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(16.dp), color = C.Surface, shadowElevation = 1.dp,
-        modifier = modifier.clickable(onClick = onClick),
-    ) {
-        Column(Modifier.padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    // 0.57 走皮肤：面由 Skin 决定（新拟态=凸 纸面=白卡细线 玻璃=半透），按下去的样子也由皮肤定
+    Box(modifier.pressable(16.dp, onClick = onClick)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(tint), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = title, tint = Color.White)
             }
             Spacer(Modifier.height(10.dp))
-            Text(title, fontSize = 14.sp, color = C.Ink)
+            Text(title, fontSize = 14.sp, color = LocalSkin.current.ink)
         }
     }
 }
 
 @Composable
 fun SectionTitle(text: String) {
-    Text(text, fontSize = 13.sp, color = C.Grey, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+    Text(text, fontSize = 13.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
 }
 
 @Composable
 fun WhiteCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Surface(shape = RoundedCornerShape(16.dp), color = C.Surface, shadowElevation = 1.dp, modifier = modifier.fillMaxWidth()) { content() }
+    // 0.57 名字还叫 WhiteCard 但面已经归皮肤管：纸面皮下它才是白卡
+    Box(modifier.fillMaxWidth().raised(16.dp)) { content() }
 }

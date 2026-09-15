@@ -113,7 +113,7 @@ fun JetUserInput(
     }
 
     // 0.27 新拟物demo（她0910定的方向）：同色底 凸钮凹槽 按压凸变凹
-    Surface(color = Neu.Bg, contentColor = Neu.Ink) {
+    Surface(color = me.chen.laidian.ui.LocalSkin.current.bg, contentColor = me.chen.laidian.ui.LocalSkin.current.ink) {
         Column(modifier) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
                 // ➕：面板开着=保持凹陷 否则凸起+按压凹

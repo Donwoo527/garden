@@ -106,7 +106,7 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
 
     // 0.29 她的指令：主页整页新拟物
-    Column(Modifier.fillMaxSize().background(Neu.Bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(48.dp))
         Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
             DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
@@ -205,7 +205,7 @@ fun MomentsScreen(onBack: () -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(C.Bg)) {
+    Column(Modifier.fillMaxSize().background(LocalSkin.current.bg)) {
         Surface(color = C.Surface, shadowElevation = 1.dp) {
             Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = C.Ink) }
