@@ -82,14 +82,15 @@ import me.chen.laidian.ChenService
 import me.chen.laidian.net.ChatApi
 import me.chen.laidian.net.ChatClient
 
-private data class Tab(val label: String, val icon: ImageVector)
+// 0915 她的稿：Material Symbols 五个图标（chat_bubble / terminal / home / handyman / settings）转成矢量放 res/drawable
+private data class Tab(val label: String, val icon: Int)
 
 private val TABS = listOf(
-    Tab("聊天", Icons.Default.Email),
-    Tab("终端", Icons.Default.Build),
-    Tab("主页", Icons.Default.Home),
-    Tab("工具", Icons.Default.Star),
-    Tab("设置", Icons.Default.Settings),
+    Tab("聊天", me.chen.laidian.R.drawable.ic_chat_bubble),
+    Tab("终端", me.chen.laidian.R.drawable.ic_terminal),
+    Tab("主页", me.chen.laidian.R.drawable.ic_home),
+    Tab("工具", me.chen.laidian.R.drawable.ic_handyman),
+    Tab("设置", me.chen.laidian.R.drawable.ic_settings),
 )
 
 @Composable
@@ -119,7 +120,7 @@ fun MainScreen() {
                         verticalArrangement = Arrangement.Center,
                     ) {
                         Box {
-                            Icon(t.icon, contentDescription = t.label, tint = if (sel) skin.ink else skin.muted, modifier = Modifier.size(21.dp))
+                            Icon(androidx.compose.ui.res.painterResource(t.icon), contentDescription = t.label, tint = if (sel) skin.ink else skin.muted, modifier = Modifier.size(24.dp))   // 0915 她定的 24
                             if (i == 2 && momentsUnread > 0) {
                                 Box(
                                     Modifier.align(Alignment.TopEnd).offset(x = 7.dp, y = (-4).dp)
@@ -131,7 +132,7 @@ fun MainScreen() {
                                 }
                             }
                         }
-                        Text(t.label, fontSize = 10.sp, color = if (sel) skin.ink else skin.muted)
+                        Text(t.label, fontSize = 12.sp, color = if (sel) skin.ink else skin.muted)   // 0915 她定的 12
                     }
                 }
             }
