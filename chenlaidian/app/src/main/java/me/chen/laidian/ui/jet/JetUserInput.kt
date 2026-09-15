@@ -95,6 +95,8 @@ fun JetUserInput(
     onMessageSent: (String) -> Unit,
     onTyping: (Boolean) -> Unit,
     onPickImages: () -> Unit,
+    onPickFile: () -> Unit = {},
+    onTakePhoto: () -> Unit = {},
     onCall: () -> Unit,
     resetScroll: () -> Unit,
     modifier: Modifier = Modifier,
@@ -186,9 +188,12 @@ fun JetUserInput(
                 val stickerLoader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
                 val stickerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
                     if (uri != null) scope.launch {
-                        withContext(Dispatchers.IO) {
-                            ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }?.let { ChatApi.addSticker(ctx, it) }
+                        // 0915 ⑤ 她报"存不进去"：哪一步断了必须说出来
+                        ChatApi.lastError = null
+                        val ok = withContext(Dispatchers.IO) {
+                            ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }?.let { ChatApi.addSticker(ctx, it) } ?: false
                         }
+                        if (!ok) Toast.makeText(ctx, "表情没存上：" + (ChatApi.lastError ?: "读图/压缩失败"), Toast.LENGTH_LONG).show()
                         withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
                     }
                 }
@@ -239,7 +244,9 @@ fun JetUserInput(
                 Surface(tonalElevation = 8.dp) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
                         PlusPanelItem(icon = painterResource(R.drawable.ic_insert_photo), label = "相册", onClick = { dismiss(); onPickImages() })
-                        // 以后：拍照 / 文件 / 位置 都往这个面板里加
+                        // 0915 ③ 她点的：拍照 / 文件
+                        PlusPanelItem(icon = painterResource(R.drawable.ic_photo_camera), label = "拍照", onClick = { dismiss(); onTakePhoto() })
+                        PlusPanelItem(icon = painterResource(R.drawable.ic_attach_file), label = "文件", onClick = { dismiss(); onPickFile() })
                     }
                 }
             }

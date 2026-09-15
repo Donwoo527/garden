@@ -17,19 +17,27 @@ object ChatApi {
     private fun http(ctx: Context): OkHttpClient =
         client ?: Tls.client(ctx.applicationContext).also { client = it }
 
+    /** 0915 最近一次失败的原因（页面 Toast 用）：0914 她报"图片发送失败"只有四个字 查不下去 */
+    @Volatile var lastError: String? = null
+
     /** 上传一张图（silent：只存文件不单独进聊天），返回 /media/xxx.jpg */
-    fun uploadImage(ctx: Context, jpeg: ByteArray): String? {
+    fun uploadImage(ctx: Context, jpeg: ByteArray): String? = uploadBytes(ctx, jpeg, "photo.jpg", "image/jpeg")
+
+    /** 0915 通用上传：silent=true 只存文件返回地址；false 服务端直接当她发的一条（图片/文件）入库并广播 */
+    fun uploadBytes(ctx: Context, bytes: ByteArray, filename: String, mime: String, silent: Boolean = true): String? {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", "photo.jpg", jpeg.toRequestBody("image/jpeg".toMediaType()))
+            .addFormDataPart("file", filename, bytes.toRequestBody(mime.toMediaType()))
             .build()
-        val req = Request.Builder().url(ChatClient.baseUrl() + "/upload?silent=1")
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/upload" + (if (silent) "?silent=1" else ""))
             .header("X-Token", TOKEN).post(body).build()
         return try {
             http(ctx).newCall(req).execute().use { r ->
-                if (!r.isSuccessful) return null
-                JSONObject(r.body?.string() ?: return null).optString("url", "").takeIf { it.isNotBlank() }
+                if (!r.isSuccessful) { lastError = "上传被拒 HTTP ${r.code}"; return null }
+                val url = JSONObject(r.body?.string() ?: "{}").optString("url", "").takeIf { it.isNotBlank() }
+                if (url == null) lastError = "上传返回里没有地址"
+                url
             }
-        } catch (e: Exception) { null }
+        } catch (e: Exception) { lastError = "上传 ${e.javaClass.simpleName}${e.message?.let { ": " + it.take(60) } ?: ""}"; null }
     }
 
     /** 多张图 + 可选配文合成一条消息 */
@@ -77,7 +85,7 @@ object ChatApi {
     }
 
     /** 0.38 添加收藏表情 */
-    fun addSticker(ctx: Context, url: String): Boolean = postJson(ctx, "/stickers", JSONObject().put("url", url))
+    fun addSticker(ctx: Context, url: String): Boolean = postJson(ctx, "/stickers", JSONObject().put("url", url).put("who", "xiaochen"))
 
     /** 收藏一条消息（快照） */
     fun addFavorite(ctx: Context, m: me.chen.laidian.model.Msg): Boolean {
@@ -157,6 +165,11 @@ object ChatApi {
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()
-        return try { http(ctx).newCall(req).execute().use { it.isSuccessful } } catch (e: Exception) { false }
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) lastError = "$path 被拒 HTTP ${r.code}"
+                r.isSuccessful
+            }
+        } catch (e: Exception) { lastError = "$path ${e.javaClass.simpleName}"; false }
     }
 }

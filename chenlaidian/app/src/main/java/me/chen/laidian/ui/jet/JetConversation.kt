@@ -156,14 +156,56 @@ fun JetConversation(onCall: () -> Unit) {
     LaunchedEffect(lastId) { if (scrollState.firstVisibleItemIndex <= 1) scrollState.scrollToItem(0) }
     val nearTop by remember { derivedStateOf { val info = scrollState.layoutInfo; info.totalItemsCount > 0 && (info.visibleItemsInfo.lastOrNull()?.index ?: -1) >= info.totalItemsCount - 3 } }
     LaunchedEffect(nearTop) { if (nearTop && query.isBlank()) ChatClient.loadMore() }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+    // 0915 ④ 发图可勾"原图"：选完先弹一个小框 勾了传原文件 不勾走压缩（长边 1600 JPEG 82）；失败 Toast 带原因
+    var pendingImages by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    var sendOriginal by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris -> if (uris.isNotEmpty()) pendingImages = uris }
+    fun sendPicked(uris: List<android.net.Uri>, original: Boolean) {
         sending = true
         scope.launch {
-            val urls = withContext(Dispatchers.IO) { uris.mapNotNull { u -> ImageUtil.compress(ctx, u)?.let { ChatApi.uploadImage(ctx, it) } } }
+            ChatApi.lastError = null
+            val urls = withContext(Dispatchers.IO) {
+                uris.mapNotNull { u ->
+                    if (original) {
+                        val mime = ctx.contentResolver.getType(u) ?: "image/jpeg"
+                        val ext = when (mime) { "image/png" -> ".png"; "image/webp" -> ".webp"; "image/gif" -> ".gif"; "image/heic", "image/heif" -> ".heic"; else -> ".jpg" }
+                        ctx.contentResolver.openInputStream(u)?.use { it.readBytes() }?.let { ChatApi.uploadBytes(ctx, it, "orig$ext", mime) }
+                    } else ImageUtil.compress(ctx, u)?.let { ChatApi.uploadImage(ctx, it) }
+                }
+            }
             val ok = urls.isNotEmpty() && withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, urls, "") }
             sending = false
-            if (!ok) Toast.makeText(ctx, "图片发送失败", Toast.LENGTH_SHORT).show()
+            if (!ok) Toast.makeText(ctx, "图片发送失败：" + (ChatApi.lastError ?: if (urls.isEmpty()) "读图/压缩失败" else "发送被拒"), Toast.LENGTH_LONG).show()
+        }
+    }
+    // 0915 ③ 文件（不压 服务端直接入库当她发的一条）和拍照（系统相机预览图 → JPEG 88）
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        sending = true
+        scope.launch {
+            ChatApi.lastError = null
+            val ok = withContext(Dispatchers.IO) {
+                var name = "file"
+                try { ctx.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) name = c.getString(0) ?: name } } catch (_: Exception) {}
+                val mime = ctx.contentResolver.getType(uri) ?: "application/octet-stream"
+                val bytes = try { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } } catch (_: Exception) { null }
+                bytes != null && ChatApi.uploadBytes(ctx, bytes, name, mime, silent = false) != null
+            }
+            sending = false
+            if (!ok) Toast.makeText(ctx, "文件发送失败：" + (ChatApi.lastError ?: "读不到文件"), Toast.LENGTH_LONG).show()
+        }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp == null) return@rememberLauncherForActivityResult
+        sending = true
+        scope.launch {
+            ChatApi.lastError = null
+            val ok = withContext(Dispatchers.IO) {
+                val bytes = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
+                ChatApi.uploadImage(ctx, bytes)?.let { ChatApi.sendImages(ctx, listOf(it), "") } ?: false
+            }
+            sending = false
+            if (!ok) Toast.makeText(ctx, "拍照发送失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -204,6 +246,8 @@ fun JetConversation(onCall: () -> Unit) {
                 onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) replyTo = null else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
                 onTyping = { ChatClient.typing(it) },
                 onPickImages = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onPickFile = { filePicker.launch(arrayOf("*/*")) },
+                onTakePhoto = { camera.launch(null) },
                 onCall = onCall,
                 resetScroll = { scope.launch { scrollState.scrollToItem(0) } },
                 modifier = Modifier,   // 0.53 键盘/导航栏留白统一由 MainScreen 做，这里不再叠
@@ -211,6 +255,18 @@ fun JetConversation(onCall: () -> Unit) {
             )
         }
     }
+    if (pendingImages.isNotEmpty()) AlertDialog(
+        onDismissRequest = { pendingImages = emptyList() },
+        title = { Text("发送 ${pendingImages.size} 张图") },
+        text = {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { sendOriginal = !sendOriginal }) {
+                androidx.compose.material3.Checkbox(checked = sendOriginal, onCheckedChange = { sendOriginal = it })
+                Text("原图（不压缩）")
+            }
+        },
+        confirmButton = { androidx.compose.material3.TextButton(onClick = { val l = pendingImages; pendingImages = emptyList(); sendPicked(l, sendOriginal) }) { Text("发送") } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = { pendingImages = emptyList() }) { Text("取消") } },
+    )
     if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() }, onHistory = { showCard = false; showHistory = true })
     if (showHistory) ProfileHistoryDialog(onDismiss = { showHistory = false })
 }
@@ -510,9 +566,23 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
         val imgs = if (m.msgType == "images") m.images else if (m.msgType == "image" && m.media != null) listOf(m.media) else emptyList()
         imgs.forEach { u ->
             Spacer(Modifier.height(4.dp))
-            Surface(color = bg, shape = shape) {
-                AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
-                    modifier = Modifier.widthIn(max = 240.dp).padding(4.dp).clip(RoundedCornerShape(16.dp)))
+            // 0915 ⑥ 长按图片→存为表情（两个人共用一个表情库 谁都能把对方发的收进去）
+            var imgMenu by remember(u) { mutableStateOf(false) }
+            Box {
+                Surface(color = bg, shape = shape, modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { imgMenu = true })) {
+                    AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
+                        modifier = Modifier.widthIn(max = 240.dp).padding(4.dp).clip(RoundedCornerShape(16.dp)))
+                }
+                DropdownMenu(expanded = imgMenu, onDismissRequest = { imgMenu = false }) {
+                    DropdownMenuItem(text = { Text("存为表情") }, onClick = {
+                        imgMenu = false
+                        dragScope.launch {
+                            val ok = withContext(Dispatchers.IO) { ChatApi.addSticker(ctx, u) }
+                            Toast.makeText(ctx, if (ok) "存进表情库了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                        }
+                    })
+                    DropdownMenuItem(text = { Text("收藏") }, onClick = { imgMenu = false; onFav(m) })
+                }
             }
         }
     }
