@@ -314,7 +314,8 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
             Spacer(Modifier.width(6.dp))
             // 0915 她：头像 40 横向居中 不凸起
             Box(
-                Modifier.size(40.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),
+                Modifier.size(40.dp).clip(CircleShape).background(Color.White)   // 0915 她：顶栏头像也给个白底 点还是跳
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),
                 contentAlignment = Alignment.Center,
             ) { DotsAvatar(big = 13.dp, small = 8.dp, gap = 4.dp, online = null, box = 32.dp) }
             Spacer(Modifier.width(10.dp))
@@ -389,6 +390,13 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
             }
         }
+        // 0915 她：顶栏和输入栏跟消息区之间要有阴影——两道 12dp 的软渐变 不画硬线
+        val shade = me.chen.laidian.ui.LocalSkin.current.muted
+        Box(Modifier.fillMaxWidth().height(12.dp).align(Alignment.TopCenter)
+            .background(Brush.verticalGradient(listOf(shade.copy(alpha = 0.22f), Color.Transparent))))
+        // 她：上面深 下面亮（新拟物的光从左上来 消息区是凹下去的一块）
+        Box(Modifier.fillMaxWidth().height(12.dp).align(Alignment.BottomCenter)
+            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.75f)))))
         val jumpThreshold = with(LocalDensity.current) { 56.dp.toPx() }
         val jumpEnabled by remember { derivedStateOf { scrollState.firstVisibleItemIndex != 0 || scrollState.firstVisibleItemScrollOffset > jumpThreshold } }
         JumpToBottom(enabled = jumpEnabled, onClicked = { scope.launch { scrollState.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomCenter))
@@ -427,10 +435,10 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
 @Composable
 private fun AvatarOrSpace(show: Boolean, borderColor: Color, isChen: Boolean, url: String, loader: ImageLoader) {
     if (!show) { Spacer(Modifier.width(54.dp)); return }
+    // 0915 她：头像外的色环去掉（蓝/橙都不要）辰的头像白底圆
     Box(
-        Modifier.padding(horizontal = 10.dp).size(34.dp)
-            .border(1.5.dp, borderColor, CircleShape).border(3.dp, MaterialTheme.colorScheme.surface, CircleShape).clip(CircleShape)
-            .background(if (isChen) MaterialTheme.colorScheme.surface else C.Orange),
+        Modifier.padding(horizontal = 10.dp).size(34.dp).clip(CircleShape)
+            .background(if (isChen) Color.White else C.Orange),
         contentAlignment = Alignment.Center,
     ) {
         when {
