@@ -193,9 +193,9 @@ fun JetUserInput(
                         // 0915 ⑤ 她报"存不进去"：哪一步断了必须说出来
                         ChatApi.lastError = null
                         val ok = withContext(Dispatchers.IO) {
-                            // 0915 表情原样存（动图才会动）；读不出来再试压缩
-                            val (bytes, mime, ext) = ImageUtil.readRaw(ctx, uri) ?: Triple(null, "", "")
-                            val url = if (bytes != null) ChatApi.uploadBytes(ctx, bytes, "sticker$ext", mime) else ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }
+                            // 0915 她：表情存之前先压一道；压不动的（动图等）才原样存
+                            val url = ImageUtil.compress(ctx, uri)?.let { ChatApi.uploadImage(ctx, it) }
+                                ?: ImageUtil.readRaw(ctx, uri)?.let { (b, mime, ext) -> ChatApi.uploadBytes(ctx, b, "sticker$ext", mime) }
                             url?.let { ChatApi.addSticker(ctx, it) } ?: false
                         }
                         if (!ok) Toast.makeText(ctx, "表情没存上：" + (ChatApi.lastError ?: "读图/压缩失败"), Toast.LENGTH_LONG).show()
@@ -218,11 +218,18 @@ fun JetUserInput(
                 }
                 Surface(tonalElevation = 8.dp) {
                     Column {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                            Text("😊", fontSize = 20.sp, modifier = Modifier.clickable { stickerTab = false }
+                        // 0915 她：表情包没有删除键——加"管理"：点了每张右上角出 ×（长按删也还在）
+                        var manage by remember { mutableStateOf(false) }
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("😊", fontSize = 20.sp, modifier = Modifier.clickable { stickerTab = false; manage = false }
                                 .background(if (!stickerTab) Neu.Dark.copy(alpha = 0.25f) else Color.Transparent, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 4.dp))
                             Text("♡", fontSize = 20.sp, color = Neu.Ink, modifier = Modifier.clickable { stickerTab = true }
                                 .background(if (stickerTab) Neu.Dark.copy(alpha = 0.25f) else Color.Transparent, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 4.dp))
+                            if (stickerTab) {
+                                Spacer(Modifier.weight(1f))
+                                Text(if (manage) "完成" else "管理", fontSize = 13.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
+                                    modifier = Modifier.clickable { manage = !manage }.padding(horizontal = 8.dp, vertical = 4.dp))
+                            }
                         }
                         if (!stickerTab) {
                             EmojiTable(onTextAdded = { e ->
@@ -249,6 +256,17 @@ fun JetUserInput(
                                                         modifier = Modifier.padding(4.dp).size(76.dp)
                                                             .background(Color.White, RoundedCornerShape(12.dp))
                                                             .combinedClickable(onClick = { onSendSticker(u); dismiss() }, onLongClick = { delMenu = true }))
+                                                    if (manage) Box(
+                                                        Modifier.align(Alignment.TopEnd).size(22.dp).background(Color(0xCCE53935), CircleShape)
+                                                            .clickable {
+                                                                scope.launch {
+                                                                    val ok = withContext(Dispatchers.IO) { ChatApi.deleteSticker(ctx, u) }
+                                                                    if (!ok) Toast.makeText(ctx, "没删掉：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                                                                    withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
+                                                                }
+                                                            },
+                                                        contentAlignment = Alignment.Center,
+                                                    ) { Text("×", color = Color.White, fontSize = 14.sp) }
                                                     androidx.compose.material3.DropdownMenu(expanded = delMenu, onDismissRequest = { delMenu = false }) {
                                                         androidx.compose.material3.DropdownMenuItem(text = { Text("删除这张") }, onClick = {
                                                             delMenu = false

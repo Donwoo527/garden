@@ -2,4 +2,6 @@
 <!-- 0915 拍照全尺寸：相机往这个缓存目录写原图（TakePicturePreview 只给 144×192 的缩略图） -->
 <paths>
     <cache-path name="camera" path="camera/" />
+    <!-- 0915 文件点开：先下到这里再交给系统 app -->
+    <cache-path name="files" path="files/" />
 </paths>

@@ -317,16 +317,19 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
                 // 0915 她：VPS/绿点/心情 跟名字对齐——小字去掉字体上下留白 全部按中线对齐
                 val small = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 12.sp,
                     platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
+                // 0915 她第二次说没对齐：改按文字基线对齐（名字/VPS/心情三段基线一条线 绿点坐在基线上）心情再上移 1dp
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("辰", fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = skin.ink,
-                        style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)))
+                        style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)),
+                        modifier = Modifier.alignByBaseline())
                     Spacer(Modifier.width(6.dp))
-                    Box(Modifier.size(6.dp).clip(CircleShape).background(if (alive) C.Green else skin.muted))
+                    Box(Modifier.alignBy { it.measuredHeight }.padding(bottom = 1.dp).size(6.dp).clip(CircleShape).background(if (alive) C.Green else skin.muted))
                     Spacer(Modifier.width(3.dp))
-                    Text("VPS", style = small, color = if (alive) C.Green else skin.muted)
+                    Text("VPS", style = small, color = if (alive) C.Green else skin.muted, modifier = Modifier.alignByBaseline())
                     if (alive && mood.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
-                        Text(mood, style = small, color = C.Orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(mood, style = small, color = C.Orange, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.alignByBaseline().offset(y = (-1).dp))
                     }
                 }
                 // 签名回到顶栏第二行（0.37 曾退到资料卡，她 0915 的稿又放回来了）；没签名时放连接状态
@@ -613,7 +616,23 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                                 }
                             }
                         }
-                        m.msgType == "file" -> Text("📎 " + (m.filename ?: "文件"), color = fg, fontSize = 15.sp, modifier = Modifier.padding(16.dp))
+                        m.msgType == "file" -> {
+                            // 0915 她：文件点开能看（交给系统 app）长按能存到下载
+                            var fmenu by remember { mutableStateOf(false) }
+                            Box {
+                                Text("📎 " + (m.filename ?: "文件"), color = fg, fontSize = 15.sp,
+                                    modifier = Modifier.combinedClickable(onClick = { m.media?.let { openFile(ctx, it, m.filename) } }, onLongClick = { fmenu = true }).padding(14.dp))
+                                DropdownMenu(expanded = fmenu, onDismissRequest = { fmenu = false }) {
+                                    DropdownMenuItem(text = { Text("保存到下载") }, onClick = {
+                                        fmenu = false
+                                        m.media?.let { u -> dragScope.launch {
+                                            val ok = withContext(Dispatchers.IO) { saveFileToDownloads(ctx, u, m.filename) }
+                                            Toast.makeText(ctx, if (ok) "存到 Download/辰来电 了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                                        } }
+                                    })
+                                }
+                            }
+                        }
                         m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg)
                         else -> {}
                     }
@@ -640,26 +659,15 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
             }
         }
         val imgs = if (m.msgType == "images") m.images else if (m.msgType == "image" && m.media != null) listOf(m.media) else emptyList()
-        imgs.forEach { u ->
+        if (imgs.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
-            // 0915 ⑥ 长按图片→存为表情（两个人共用一个表情库 谁都能把对方发的收进去）
-            var imgMenu by remember(u) { mutableStateOf(false) }
-            Box {
-                // 0915 她：图片和表情不套气泡 光秃秃的圆角图
-                AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
-                    modifier = Modifier.widthIn(max = 160.dp).clip(RoundedCornerShape(16.dp))   // 0915 她：太大 缩到一半宽（原 240）
-                        .combinedClickable(onClick = {}, onLongClick = { imgMenu = true }))
-                DropdownMenu(expanded = imgMenu, onDismissRequest = { imgMenu = false }) {
-                    DropdownMenuItem(text = { Text("存为表情") }, onClick = {
-                        imgMenu = false
-                        dragScope.launch {
-                            val ok = withContext(Dispatchers.IO) { ChatApi.addSticker(ctx, u) }
-                            Toast.makeText(ctx, if (ok) "存进表情库了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
-                        }
-                    })
-                    DropdownMenuItem(text = { Text("收藏") }, onClick = { imgMenu = false; onFav(m) })
+            // 0915 她：图不套气泡、缩到 80、点开全屏能翻能存、连发的叠一摞（MediaViews.kt）；长按→存为表情/收藏
+            MessageImages(imgs, loader, onSticker = { u ->
+                dragScope.launch {
+                    val ok = withContext(Dispatchers.IO) { ChatApi.addSticker(ctx, u) }
+                    Toast.makeText(ctx, if (ok) "存进表情库了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
                 }
-            }
+            }, onFav = { onFav(m) })
         }
     }
 }
