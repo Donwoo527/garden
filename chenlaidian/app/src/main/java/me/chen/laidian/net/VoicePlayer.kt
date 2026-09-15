@@ -22,6 +22,16 @@ object VoicePlayer {
         if (_state.value?.url == url) stop() else play(context, url)
     }
 
+    /** 0915 她要的：进度条能拖。fraction 0..1 */
+    fun seekTo(url: String, fraction: Float) {
+        val mp = player ?: return
+        if (_state.value?.url != url) return
+        try {
+            val d = mp.duration
+            if (d > 0) { mp.seekTo((d * fraction.coerceIn(0f, 1f)).toInt()); _state.value = State(url, fraction.coerceIn(0f, 1f)) }
+        } catch (_: Exception) {}
+    }
+
     fun play(context: Context, url: String, onDone: () -> Unit = {}) {
         stop()
         _state.value = State(url, 0f)

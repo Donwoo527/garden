@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -160,6 +161,17 @@ fun JetConversation(onCall: () -> Unit) {
     var pendingImages by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var sendOriginal by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(9)) { uris -> if (uris.isNotEmpty()) pendingImages = uris }
+    // 0915 相册权限：她的 OPPO 相册给的地址没权限读不到（0914 起"图片发送失败"、0915"表情没存上"都是它）。先要权限再开相册
+    val mediaPerm = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        else Toast.makeText(ctx, "没给相册权限 发不了图", Toast.LENGTH_SHORT).show()
+    }
+    fun pickImages() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, mediaPerm) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+            picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        else permLauncher.launch(mediaPerm)
+    }
     fun sendPicked(uris: List<android.net.Uri>, original: Boolean) {
         sending = true
         scope.launch {
@@ -195,18 +207,29 @@ fun JetConversation(onCall: () -> Unit) {
             if (!ok) Toast.makeText(ctx, "文件发送失败：" + (ChatApi.lastError ?: "读不到文件"), Toast.LENGTH_LONG).show()
         }
     }
-    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
-        if (bmp == null) return@rememberLauncherForActivityResult
+    // 0915 拍照全尺寸：相机把原图写进 cache/camera/ 再走和相册一样的压缩上传（0.62 用的预览图只有 144×192）
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok0 ->
+        val u = cameraUri
+        if (!ok0 || u == null) return@rememberLauncherForActivityResult
         sending = true
         scope.launch {
             ChatApi.lastError = null
             val ok = withContext(Dispatchers.IO) {
-                val bytes = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, it) }.toByteArray()
-                ChatApi.uploadImage(ctx, bytes)?.let { ChatApi.sendImages(ctx, listOf(it), "") } ?: false
+                ImageUtil.compressOrRawUpload(ctx, u)?.let { ChatApi.sendImages(ctx, listOf(it), "") } ?: false
             }
             sending = false
             if (!ok) Toast.makeText(ctx, "拍照发送失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_LONG).show()
         }
+    }
+    fun takePhoto() {
+        try {
+            val dir = java.io.File(ctx.cacheDir, "camera").apply { mkdirs() }
+            val f = java.io.File(dir, "shot_${System.currentTimeMillis()}.jpg")
+            val u = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", f)
+            cameraUri = u
+            camera.launch(u)
+        } catch (e: Exception) { Toast.makeText(ctx, "打不开相机：${e.javaClass.simpleName}", Toast.LENGTH_SHORT).show() }
     }
 
     Scaffold(
@@ -245,9 +268,9 @@ fun JetConversation(onCall: () -> Unit) {
                 onSendSticker = { url -> scope.launch { withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(url), "") } } },
                 onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) replyTo = null else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
                 onTyping = { ChatClient.typing(it) },
-                onPickImages = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onPickImages = { pickImages() },
                 onPickFile = { filePicker.launch(arrayOf("*/*")) },
-                onTakePhoto = { camera.launch(null) },
+                onTakePhoto = { takePhoto() },
                 onCall = onCall,
                 resetScroll = { scope.launch { scrollState.scrollToItem(0) } },
                 modifier = Modifier,   // 0.53 键盘/导航栏留白统一由 MainScreen 做，这里不再叠
@@ -282,21 +305,26 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
             // 她稿上左上角的返回箭头：回哪儿等她定 先接资料卡 不留死按钮
             BarIcon(rememberVectorPainter(Icons.Default.KeyboardArrowLeft), "返回", onInfo)
             Spacer(Modifier.width(6.dp))
+            // 0915 她：头像 40 横向居中 不凸起
             Box(
-                Modifier.size(38.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),   // 0915 她：头像不用刻意凸起
+                Modifier.size(40.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),
                 contentAlignment = Alignment.Center,
-            ) { DotsAvatar(big = 12.dp, small = 8.dp, gap = 4.dp, online = null, box = 30.dp) }
+            ) { DotsAvatar(big = 13.dp, small = 8.dp, gap = 4.dp, online = null, box = 32.dp) }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
+                // 0915 她：VPS/绿点/心情 跟名字对齐——小字去掉字体上下留白 全部按中线对齐
+                val small = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 12.sp,
+                    platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("辰", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = skin.ink)
+                    Text("辰", fontSize = 18.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, color = skin.ink,
+                        style = androidx.compose.ui.text.TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)))
                     Spacer(Modifier.width(6.dp))
                     Box(Modifier.size(6.dp).clip(CircleShape).background(if (alive) C.Green else skin.muted))
                     Spacer(Modifier.width(3.dp))
-                    Text("VPS", fontSize = 12.sp, color = if (alive) C.Green else skin.muted)
+                    Text("VPS", style = small, color = if (alive) C.Green else skin.muted)
                     if (alive && mood.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
-                        Text(mood, fontSize = 12.sp, color = C.Orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(mood, style = small, color = C.Orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 // 签名回到顶栏第二行（0.37 曾退到资料卡，她 0915 的稿又放回来了）；没签名时放连接状态
@@ -534,7 +562,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                             val url = ChatClient.mediaUrl(m.voice)
                             val playing = vs?.url == url
                             val progress = if (playing) vs?.progress ?: 0f else 0f
-                            Column(Modifier.widthIn(min = 220.dp).padding(horizontal = 10.dp, vertical = 8.dp)) {
+                            Column(Modifier.widthIn(min = 220.dp).padding(horizontal = 8.dp, vertical = 6.dp)) {   // 0915 她：语音再紧 2
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         Modifier.size(34.dp).clip(CircleShape).background(skin.accent.copy(alpha = 0.25f))
@@ -553,13 +581,27 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                                         Text("${(d / 60).toInt()}:${"%02d".format((d % 60).roundToInt())}", fontSize = 12.sp, color = skin.muted)
                                     }
                                 }
-                                if (playing) LinearProgressIndicator(
-                                    progress = { progress }, color = skin.accent, trackColor = skin.accent.copy(alpha = 0.2f),
-                                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp).height(2.dp),
-                                )
+                                // 0915 她：进度条能拖（像录音那样）——12dp 高的触摸区里画 2dp 的线 点/拖都跳到那个位置
+                                if (playing) Box(
+                                    Modifier.fillMaxWidth().padding(top = 4.dp).height(12.dp)
+                                        .pointerInput(url) {
+                                            detectHorizontalDragGestures { change, _ -> change.consume(); VoicePlayer.seekTo(url, change.position.x / size.width) }
+                                        }
+                                        .pointerInput(url) {
+                                            detectTapGestures { off -> VoicePlayer.seekTo(url, off.x / size.width) }
+                                        },
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    Box(Modifier.fillMaxWidth().height(2.dp).background(skin.accent.copy(alpha = 0.2f), RoundedCornerShape(1.dp)))
+                                    Box(Modifier.fillMaxWidth(progress.coerceIn(0.005f, 1f)).height(2.dp).background(skin.accent, RoundedCornerShape(1.dp)))
+                                    // 圆点挂在已播部分的右端
+                                    Box(Modifier.fillMaxWidth(progress.coerceIn(0.005f, 1f)).height(12.dp), contentAlignment = Alignment.CenterEnd) {
+                                        Box(Modifier.size(10.dp).clip(CircleShape).background(skin.accent))
+                                    }
+                                }
                                 if (m.text.isNotBlank()) {
                                     Row(
-                                        Modifier.padding(top = 6.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { transcript = !transcript },
+                                        Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { transcript = !transcript },
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Text("查看文字版", fontSize = 12.sp, color = skin.accent)
@@ -601,10 +643,10 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
             // 0915 ⑥ 长按图片→存为表情（两个人共用一个表情库 谁都能把对方发的收进去）
             var imgMenu by remember(u) { mutableStateOf(false) }
             Box {
-                Surface(color = bg, shape = shape, modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { imgMenu = true })) {
-                    AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
-                        modifier = Modifier.widthIn(max = 240.dp).padding(4.dp).clip(RoundedCornerShape(16.dp)))
-                }
+                // 0915 她：图片和表情不套气泡 光秃秃的圆角图
+                AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
+                    modifier = Modifier.widthIn(max = 240.dp).clip(RoundedCornerShape(16.dp))
+                        .combinedClickable(onClick = {}, onLongClick = { imgMenu = true }))
                 DropdownMenu(expanded = imgMenu, onDismissRequest = { imgMenu = false }) {
                     DropdownMenuItem(text = { Text("存为表情") }, onClick = {
                         imgMenu = false
@@ -648,7 +690,7 @@ private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color) {
     ClickableText(
         text = styled,
         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 20.sp, color = color),
-        modifier = Modifier.padding(12.dp),
+        modifier = Modifier.padding(horizontal = 11.dp, vertical = 10.dp),   // 0915 她：左右−1 上下−2
         onClick = { off ->
             styled.getStringAnnotations(start = off, end = off).firstOrNull()?.let { a ->
                 if (a.tag == SymbolAnnotationType.LINK.name) uriHandler.openUri(a.item)

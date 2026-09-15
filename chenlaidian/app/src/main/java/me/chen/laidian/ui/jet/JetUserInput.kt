@@ -202,6 +202,17 @@ fun JetUserInput(
                         withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
                     }
                 }
+                // 0915 相册权限（OPPO 相册地址没权限读不到）：没权限先要 给了再开相册
+                val mediaPerm = if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES else android.Manifest.permission.READ_EXTERNAL_STORAGE
+                val stickerPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+                    if (granted) stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    else Toast.makeText(ctx, "没给相册权限 存不了表情", Toast.LENGTH_SHORT).show()
+                }
+                val pickSticker = {
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, mediaPerm) == android.content.pm.PackageManager.PERMISSION_GRANTED)
+                        stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    else stickerPerm.launch(mediaPerm)
+                }
                 LaunchedEffect(stickerTab) {
                     if (stickerTab) withContext(Dispatchers.IO) { ChatApi.stickers(ctx) }?.let { stickers = it }
                 }
@@ -227,7 +238,7 @@ fun JetUserInput(
                                             if (u == null) {
                                                 Box(Modifier.padding(4.dp).size(76.dp)
                                                     .background(Neu.Dark.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-                                                    .clickable { stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                                    .clickable { pickSticker() },
                                                     contentAlignment = Alignment.Center) { Text("＋", fontSize = 26.sp, color = Neu.Ink) }
                                             } else {
                                                 // 0915 长按→删除（她存错了要能删）
