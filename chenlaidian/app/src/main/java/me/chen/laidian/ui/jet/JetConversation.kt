@@ -114,6 +114,11 @@ import me.chen.laidian.net.ImageUtil
 import me.chen.laidian.net.VoicePlayer
 import me.chen.laidian.ui.C
 import me.chen.laidian.ui.DotsAvatar
+import me.chen.laidian.ui.raised
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.text.style.TextOverflow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -212,44 +217,50 @@ fun JetConversation(onCall: () -> Unit) {
 @Composable
 private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig: String, scrollBehavior: TopAppBarScrollBehavior,
                            onAvatar: () -> Unit, onSearch: () -> Unit, onCall: () -> Unit, onInfo: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-        Row(
-            Modifier.fillMaxWidth().height(60.dp).padding(horizontal = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.size(52.dp).clickable(onClick = onAvatar), contentAlignment = Alignment.Center) {
-                DotsAvatar(big = 13.dp, small = 8.dp, gap = 5.dp, online = null, box = 34.dp)
-            }
-            // 0.37 QQ式两行(她的参考图) 签名退役去资料卡
-            Column(Modifier.weight(1f).padding(start = 2.dp)) {
+    val skin = me.chen.laidian.ui.LocalSkin.current
+    // 0915 她的 Frame 1（360×800 画板 2x 导出量的）：顶栏 80 高；← 24 | 头像 38 圆 | 辰 18 半粗 ·VPS 心情 / 签名 12 | 搜索 电话 菜单 24 中心间距 30
+    Surface(color = skin.bg, contentColor = skin.ink) {
+        Row(Modifier.fillMaxWidth().height(80.dp).padding(start = 8.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            // 她稿上左上角的返回箭头：回哪儿等她定 先接资料卡 不留死按钮
+            BarIcon(rememberVectorPainter(Icons.Default.KeyboardArrowLeft), "返回", onInfo)
+            Spacer(Modifier.width(6.dp))
+            Box(
+                Modifier.size(38.dp).raised(19.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onAvatar),
+                contentAlignment = Alignment.Center,
+            ) { DotsAvatar(big = 12.dp, small = 8.dp, gap = 4.dp, online = null, box = 30.dp) }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("辰", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.width(5.dp))
-                    Text("VPS", fontSize = 10.sp, color = C.Blue, fontWeight = FontWeight.Medium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (alive) {
-                        Box(Modifier.size(6.dp).clip(CircleShape).background(C.Green))
-                        Spacer(Modifier.width(4.dp))
-                    }
-                    Text(
-                        when { alive -> "在线"; connected -> "辰不在"; else -> "连接中…" },
-                        fontSize = 11.sp, color = if (alive) C.Green else C.Grey,
-                    )
+                    Text("辰", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = skin.ink)
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(6.dp).clip(CircleShape).background(if (alive) C.Green else skin.muted))
+                    Spacer(Modifier.width(3.dp))
+                    Text("VPS", fontSize = 12.sp, color = if (alive) C.Green else skin.muted)
                     if (alive && mood.isNotBlank()) {
-                        Text(" · ", fontSize = 11.sp, color = C.Grey)
-                        Text(mood, fontSize = 11.sp, color = C.Orange, maxLines = 1)
+                        Spacer(Modifier.width(8.dp))
+                        Text(mood, fontSize = 12.sp, color = C.Orange, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+                // 签名回到顶栏第二行（0.37 曾退到资料卡，她 0915 的稿又放回来了）；没签名时放连接状态
+                Text(
+                    sig.ifBlank { when { alive -> "在线"; connected -> "辰不在"; else -> "连接中…" } },
+                    fontSize = 12.sp, color = skin.muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
-            Icon(painterResource(R.drawable.ic_search), tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "搜索",
-                modifier = Modifier.clickable(onClick = onSearch).padding(horizontal = 8.dp, vertical = 14.dp).height(22.dp))
-            Icon(Icons.Default.Phone, tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "打电话",
-                modifier = Modifier.clickable(onClick = onCall).padding(horizontal = 8.dp, vertical = 14.dp).height(22.dp))
-            Icon(Icons.Default.Menu, tint = MaterialTheme.colorScheme.onSurfaceVariant, contentDescription = "菜单",
-                modifier = Modifier.clickable(onClick = onInfo).padding(horizontal = 8.dp, vertical = 14.dp).height(22.dp))
+            BarIcon(painterResource(R.drawable.ic_search), "搜索", onSearch)
+            BarIcon(rememberVectorPainter(Icons.Default.Phone), "打电话", onCall)
+            BarIcon(rememberVectorPainter(Icons.Default.Menu), "菜单", onInfo)
         }
     }
+}
+
+/** 顶栏图标：24 的图标放在 30 宽的可点区里 = 她稿上 30 的中心间距 */
+@Composable
+private fun BarIcon(p: androidx.compose.ui.graphics.painter.Painter, desc: String, onClick: () -> Unit) {
+    Box(
+        Modifier.width(30.dp).height(48.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Icon(p, contentDescription = desc, tint = me.chen.laidian.ui.LocalSkin.current.ink, modifier = Modifier.size(24.dp)) }
 }
 
 private fun Msg.dayLabel(): String {

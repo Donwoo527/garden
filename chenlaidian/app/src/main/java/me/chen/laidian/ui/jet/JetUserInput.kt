@@ -78,6 +78,11 @@ import me.chen.laidian.ui.Neu
 import me.chen.laidian.ui.neuPressable
 import me.chen.laidian.ui.neuRaised
 import me.chen.laidian.ui.neuSunken
+import me.chen.laidian.ui.sunken
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Send
+import android.widget.Toast
 
 enum class InputSelector { NONE, EMOJI, PLUS }
 
@@ -112,25 +117,25 @@ fun JetUserInput(
         if (t.isNotEmpty()) { onMessageSent(t); textState = TextFieldValue(); onTyping(false); resetScroll() }
     }
 
-    // 0.27 新拟物demo（她0910定的方向）：同色底 凸钮凹槽 按压凸变凹
-    Surface(color = me.chen.laidian.ui.LocalSkin.current.bg, contentColor = me.chen.laidian.ui.LocalSkin.current.ink) {
+    // 0915 她的 Frame 1（2x 量的）：＋在胶囊外左（中心 24）| 胶囊 44 高 圆角 22 从 44 到 310（输入 15 号 表情在胶囊里右侧）| 胶囊外右：没字=麦克风 有字=发送
+    val skin = me.chen.laidian.ui.LocalSkin.current
+    val ctx0 = LocalContext.current
+    Surface(color = skin.bg, contentColor = skin.ink) {
         Column(modifier) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.Bottom) {
-                // ➕：面板开着=保持凹陷 否则凸起+按压凹
+            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
                 val plusOpen = selector == InputSelector.PLUS
                 Box(
-                    Modifier.size(44.dp)
-                        .then(if (plusOpen) Modifier.neuSunken(22.dp) else Modifier.neuRaised(22.dp))
+                    Modifier.width(32.dp).height(44.dp)
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                            selector = if (selector == InputSelector.PLUS) InputSelector.NONE else InputSelector.PLUS
+                            selector = if (plusOpen) InputSelector.NONE else InputSelector.PLUS
                         },
                     contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Default.Add, contentDescription = "更多", tint = Neu.Ink) }
-                Spacer(Modifier.size(10.dp))
+                ) { Icon(Icons.Default.Add, contentDescription = "更多", tint = skin.ink, modifier = Modifier.size(26.dp)) }
+                Spacer(Modifier.width(4.dp))
                 // 输入凹槽（她的规范：等你放东西进去的=凹）
-                Box(Modifier.weight(1f).neuSunken(24.dp)) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Box(Modifier.weight(1f).padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
+                Box(Modifier.weight(1f).heightIn(min = 44.dp).sunken(22.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                        Box(Modifier.weight(1f).padding(start = 18.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
                             BasicTextField(
                                 value = textState,
                                 onValueChange = { textState = it; onTyping(it.text.isNotEmpty()) },
@@ -139,33 +144,37 @@ fun JetUserInput(
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions { send() },
                                 maxLines = 4,
-                                cursorBrush = SolidColor(Neu.Ink),
-                                textStyle = LocalTextStyle.current.copy(color = Neu.Ink),
+                                cursorBrush = SolidColor(skin.ink),
+                                textStyle = LocalTextStyle.current.copy(color = skin.ink, fontSize = 15.sp),
                             )
                             if (textState.text.isEmpty() && !focused) {
-                                Text("说点什么…", style = MaterialTheme.typography.bodyLarge.copy(color = Neu.Dark))
+                                Text("说点什么…", fontSize = 15.sp, color = skin.muted)
                             }
                         }
                         val emojiOpen = selector == InputSelector.EMOJI
                         Box(
-                            Modifier.padding(end = 6.dp, bottom = 4.dp).size(36.dp)
+                            Modifier.padding(end = 10.dp, bottom = 10.dp).size(24.dp)
                                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                                     // 0.35 读实时值 不靠组合快照(她报的表情面板收不起来)
                                     selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI
                                 },
                             contentAlignment = Alignment.Center,
-                        ) { Icon(painterResource(R.drawable.ic_mood), contentDescription = "表情", tint = if (emojiOpen) Neu.Ink else Neu.Dark) }
+                        ) { Icon(painterResource(R.drawable.ic_mood), contentDescription = "表情", tint = if (emojiOpen) skin.ink else skin.muted, modifier = Modifier.size(24.dp)) }
                     }
                 }
-                Spacer(Modifier.size(10.dp))
-                // 发送：常凸 按压凹 enabled用图标深浅表达
+                Spacer(Modifier.width(4.dp))
+                // 右侧：有字=发送 没字=麦克风（她稿上是麦 语音消息还没做 先老实说）
                 val enabled = textState.text.isNotBlank()
                 Box(
-                    Modifier.size(46.dp).neuPressable(23.dp) { if (enabled) { send(); dismiss() } },
+                    Modifier.width(32.dp).height(44.dp)
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                            if (enabled) { send(); dismiss() }
+                            else Toast.makeText(ctx0, "语音消息下一版 先打字", Toast.LENGTH_SHORT).show()
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(Icons.Default.KeyboardArrowUp, contentDescription = "发送",
-                        tint = if (enabled) Neu.Ink else Neu.Dark.copy(alpha = 0.5f))
+                    if (enabled) Icon(Icons.Default.Send, contentDescription = "发送", tint = skin.ink, modifier = Modifier.size(24.dp))
+                    else Icon(painterResource(R.drawable.ic_mic), contentDescription = "语音", tint = skin.ink, modifier = Modifier.size(24.dp))
                 }
             }
             if (selector == InputSelector.EMOJI) {
