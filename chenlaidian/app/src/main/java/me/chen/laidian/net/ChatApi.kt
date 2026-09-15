@@ -178,6 +178,18 @@ object ChatApi {
         } catch (e: Exception) { lastError = "翻译 ${e.javaClass.simpleName}"; null }
     }
 
+    /** 0915 docx 在 app 里看：服务端 python-docx 抽文字 */
+    fun docText(ctx: Context, url: String): String? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/doc_text?url=" + java.net.URLEncoder.encode(url, "UTF-8")).header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                val body = JSONObject(r.body?.string() ?: "{}")
+                if (!r.isSuccessful) { lastError = "抽文字 HTTP ${r.code} ${body.optString("error").take(80)}"; return null }
+                body.optString("text", "")
+            }
+        } catch (e: Exception) { lastError = "抽文字 ${e.javaClass.simpleName}"; null }
+    }
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()

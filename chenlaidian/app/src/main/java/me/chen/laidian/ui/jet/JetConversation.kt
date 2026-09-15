@@ -148,6 +148,9 @@ fun JetConversation(onCall: () -> Unit) {
     var showCard by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
+    // 0915 她：点开图能翻整个聊天里的图——看图器放在这一层 拿全部图的顺序列表
+    var viewerUrl by remember { mutableStateOf<String?>(null) }
+    val allImages = remember(msgs) { msgs.flatMap { m -> if (m.msgType == "images") m.images else if (m.msgType == "image" && m.media != null) listOf(m.media) else emptyList() } }
     val scrollState = rememberLazyListState()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
     val scope = rememberCoroutineScope()
@@ -252,6 +255,7 @@ fun JetConversation(onCall: () -> Unit) {
                     shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
             }
             Messages(shown, msgs, readIds, loader, scrollState, Modifier.weight(1f),
+                onOpenImage = { viewerUrl = it },
                 onQuote = { replyTo = it },
                 onForward = { forwardText = it.text },
                 onFav = { m -> scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, m) }; Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show() } },
@@ -294,6 +298,7 @@ fun JetConversation(onCall: () -> Unit) {
     )
     if (showCard) ProfileCard(alive, mood, sig, onDismiss = { showCard = false }, onCall = { showCard = false; onCall() }, onHistory = { showCard = false; showHistory = true })
     if (showHistory) ProfileHistoryDialog(onDismiss = { showHistory = false })
+    viewerUrl?.let { u -> ImageViewer(allImages.ifEmpty { listOf(u) }, allImages.indexOf(u).coerceAtLeast(0), loader) { viewerUrl = null } }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -329,7 +334,7 @@ private fun ChannelNameBar(alive: Boolean, connected: Boolean, mood: String, sig
                     if (alive && mood.isNotBlank()) {
                         Spacer(Modifier.width(8.dp))
                         Text(mood, style = small, color = C.Orange, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.alignByBaseline().offset(y = (-1).dp))
+                            modifier = Modifier.alignByBaseline().offset(y = (-2).dp))   // 0915 她两次各要 1dp
                     }
                 }
                 // 签名回到顶栏第二行（0.37 曾退到资料卡，她 0915 的稿又放回来了）；没签名时放连接状态
@@ -363,7 +368,7 @@ private fun Msg.dayLabel(): String {
 
 @Composable
 private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, loader: ImageLoader, scrollState: LazyListState, modifier: Modifier,
-                     onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+                     onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val scope = rememberCoroutineScope()
     Box(modifier) {
         LazyColumn(reverseLayout = true, state = scrollState, modifier = Modifier.fillMaxSize()) {
@@ -376,7 +381,7 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 item(key = m.id) {
                     if (m.who == "system") SystemPill(m.text)
                     else MessageRow(m, all.firstOrNull { it.id == m.replyTo }, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor,
-                        read = m.id in readIds, loader = loader, onQuote = onQuote, onForward = onForward, onFav = onFav, onCopy = onCopy)
+                        read = m.id in readIds, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onFav = onFav, onCopy = onCopy)
                 }
                 val day = m.dayLabel()
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
@@ -400,7 +405,7 @@ private fun SystemPill(text: String) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, read: Boolean,
-                       loader: ImageLoader, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+                       loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
@@ -409,7 +414,7 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
         Column(Modifier.weight(1f, fill = false).padding(if (isUserMe) 0.dp else 0.dp), horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
             // 0.20 按她设计稿：不显示昵称行(头像已区分人)，时间挪到气泡下方小字
             if (!isUserMe && !m.thinking.isNullOrBlank()) ThinkingFold(m.thinking)
-            ChatItemBubble(m, quoted, isUserMe, loader, onQuote, onForward, onFav, onCopy)
+            ChatItemBubble(m, quoted, isUserMe, loader, onOpenImage, onQuote, onForward, onFav, onCopy)
             TimeUnder(m.timeLabel(), isUserMe, read)
             Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 2.dp))
         }
@@ -501,7 +506,7 @@ private val MeBubbleShape = RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf(false) }
@@ -619,9 +624,14 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                         m.msgType == "file" -> {
                             // 0915 她：文件点开能看（交给系统 app）长按能存到下载
                             var fmenu by remember { mutableStateOf(false) }
+                            var showDoc by remember { mutableStateOf(false) }   // 0915 她：文档在 app 里看（pdf/txt/docx）
+                            if (showDoc && m.media != null) DocViewer(m.media, m.filename) { showDoc = false }
                             Box {
                                 Text("📎 " + (m.filename ?: "文件"), color = fg, fontSize = 15.sp,
-                                    modifier = Modifier.combinedClickable(onClick = { m.media?.let { openFile(ctx, it, m.filename) } }, onLongClick = { fmenu = true }).padding(14.dp))
+                                    modifier = Modifier.combinedClickable(
+                                        onClick = { m.media?.let { if (canViewInApp(m.filename ?: it)) showDoc = true else openFile(ctx, it, m.filename) } },
+                                        onLongClick = { fmenu = true },
+                                    ).padding(14.dp))
                                 DropdownMenu(expanded = fmenu, onDismissRequest = { fmenu = false }) {
                                     DropdownMenuItem(text = { Text("保存到下载") }, onClick = {
                                         fmenu = false
@@ -662,7 +672,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
         if (imgs.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
             // 0915 她：图不套气泡、缩到 80、点开全屏能翻能存、连发的叠一摞（MediaViews.kt）；长按→存为表情/收藏
-            MessageImages(imgs, loader, onSticker = { u ->
+            MessageImages(imgs, loader, onOpen = onOpenImage, onSticker = { u ->
                 dragScope.launch {
                     val ok = withContext(Dispatchers.IO) { ChatApi.addSticker(ctx, u) }
                     Toast.makeText(ctx, if (ok) "存进表情库了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
