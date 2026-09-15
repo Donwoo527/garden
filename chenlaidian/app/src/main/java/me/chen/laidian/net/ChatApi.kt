@@ -162,6 +162,19 @@ object ChatApi {
         } catch (e: Exception) { null }
     }
 
+    /** 0915 翻译（她点的：辰的思考链常是英文 看着累）：服务端走 MiniMax 文本模型 */
+    fun translate(ctx: Context, text: String): String? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/translate").header("X-Token", TOKEN)
+            .post(JSONObject().put("text", text).toString().toRequestBody("application/json".toMediaType())).build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                val body = JSONObject(r.body?.string() ?: "{}")
+                if (!r.isSuccessful) { lastError = "翻译 HTTP ${r.code} ${body.optString("error").take(80)}"; return null }
+                body.optString("translation", "").takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) { lastError = "翻译 ${e.javaClass.simpleName}"; null }
+    }
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()

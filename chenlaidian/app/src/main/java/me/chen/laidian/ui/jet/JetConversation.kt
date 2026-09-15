@@ -440,8 +440,26 @@ private fun ThinkingFold(thinking: String) {
         Icon(if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, contentDescription = null, tint = C.Grey, modifier = Modifier.size(18.dp))
         Text("思考", fontSize = 13.sp, color = C.Grey)
     }
+    // 0915 她点的：思考链常是英文 展开后可以点"翻译"（服务端 MiniMax）译文接在下面
+    var tr by remember(thinking) { mutableStateOf<String?>(null) }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
-        Text(thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text(thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp)
+            Text(
+                if (tr == null) "翻译" else "收起翻译", fontSize = 12.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
+                modifier = Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    if (tr != null) tr = null
+                    else scope.launch {
+                        ChatApi.lastError = null
+                        val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, thinking) }
+                        if (t != null) tr = t else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
+            tr?.let { Text(it, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
+        }
     }
 }
 
@@ -454,6 +472,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf(false) }
+    var translated by remember(m.id) { mutableStateOf<String?>(null) }   // 0915 长按→翻译 译文贴在气泡里正文下面
     // 0915 她的图：辰浅蓝在左 她浅橘在右 字都是深色；颜色归皮肤管
     val skin = me.chen.laidian.ui.LocalSkin.current
     val bg = if (isUserMe) skin.bubbleMe else skin.bubbleChen
@@ -554,13 +573,26 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                         m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg)
                         else -> {}
                     }
+                    translated?.let { t ->
+                        HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = fg.copy(alpha = 0.15f))
+                        Text(t, fontSize = 13.sp, lineHeight = 19.sp, color = fg.copy(alpha = 0.78f), modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                    }
                 }
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                DropdownMenuItem(text = { Text("引用") }, onClick = { menu = false; onQuote(m) })
                 DropdownMenuItem(text = { Text("复制") }, onClick = { menu = false; onCopy(m) })
-                DropdownMenuItem(text = { Text("转发") }, onClick = { menu = false; onForward(m) })
+                DropdownMenuItem(text = { Text("引用") }, onClick = { menu = false; onQuote(m) })
                 DropdownMenuItem(text = { Text("收藏") }, onClick = { menu = false; onFav(m) })
+                DropdownMenuItem(text = { Text("转发") }, onClick = { menu = false; onForward(m) })
+                if (m.text.isNotBlank()) DropdownMenuItem(text = { Text(if (translated == null) "翻译" else "收起翻译") }, onClick = {
+                    menu = false
+                    if (translated != null) translated = null
+                    else dragScope.launch {
+                        ChatApi.lastError = null
+                        val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, m.text) }
+                        if (t != null) translated = t else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                    }
+                })
             }
         }
         val imgs = if (m.msgType == "images") m.images else if (m.msgType == "image" && m.media != null) listOf(m.media) else emptyList()
