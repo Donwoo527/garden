@@ -40,6 +40,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -282,14 +284,17 @@ fun DocViewer(url: String, filename: String?, onClose: () -> Unit) {
     val ext = name.substringAfterLast('.', "").lowercase()
     var pages by remember(url) { mutableStateOf<List<android.graphics.Bitmap>>(emptyList()) }
     var text by remember(url) { mutableStateOf<String?>(null) }
+    var image by remember(url) { mutableStateOf<String?>(null) }   // tiff 等服务端转成 png 后的地址
     var err by remember(url) { mutableStateOf<String?>(null) }
     val widthPx = with(LocalDensity.current) { LocalConfiguration.current.screenWidthDp.dp.roundToPx() }
     LaunchedEffect(url) {
         withContext(Dispatchers.IO) {
             try {
                 when (ext) {
-                    "pdf" -> {
-                        val f = cacheFile(ctx, url, name)
+                    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "wps" -> {
+                        // 0915 她要一键适配：Office 家族先让服务端 LibreOffice 转成 pdf 再画
+                        val pdfUrl = if (ext == "pdf") url else (ChatApi.convertToPdf(ctx, url) ?: throw Exception(ChatApi.lastError ?: "转换失败"))
+                        val f = cacheFile(ctx, pdfUrl, pdfUrl.substringAfterLast('/'))
                         android.os.ParcelFileDescriptor.open(f, android.os.ParcelFileDescriptor.MODE_READ_ONLY).use { pfd ->
                             android.graphics.pdf.PdfRenderer(pfd).use { r ->
                                 val out = ArrayList<android.graphics.Bitmap>()
@@ -303,7 +308,7 @@ fun DocViewer(url: String, filename: String?, onClose: () -> Unit) {
                             }
                         }
                     }
-                    "docx" -> text = ChatApi.docText(ctx, url) ?: throw Exception(ChatApi.lastError ?: "服务端没抽出文字")
+                    "tif", "tiff", "bmp" -> image = ChatApi.convertToPdf(ctx, url) ?: throw Exception(ChatApi.lastError ?: "转换失败")
                     else -> text = cacheFile(ctx, url, name).readText()
                 }
             } catch (e: Exception) { err = e.message ?: e.javaClass.simpleName }
@@ -317,8 +322,11 @@ fun DocViewer(url: String, filename: String?, onClose: () -> Unit) {
                 Text("关闭", color = Color.White, fontSize = 13.sp, modifier = Modifier.clickable(onClick = onClose).padding(8.dp))
             }
             val t = text
+            val img = image
             when {
                 err != null -> Text("打不开：$err", color = Color.White, modifier = Modifier.padding(16.dp))
+                img != null -> AsyncImage(model = ChatClient.mediaUrl(img), contentDescription = null, contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()))
                 pages.isNotEmpty() -> LazyColumn(Modifier.fillMaxSize()) {
                     items(pages.size) { i -> Image(bitmap = pages[i].asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)) }
                 }
@@ -330,9 +338,52 @@ fun DocViewer(url: String, filename: String?, onClose: () -> Unit) {
     }
 }
 
+/** 0915 她问 mp3 能不能发：音频文件在气泡里直接放（复用 VoicePlayer 的下载+进度） */
+fun isAudioFile(name: String?): Boolean =
+    (name ?: "").substringAfterLast('.', "").lowercase() in setOf("mp3", "m4a", "aac", "wav", "ogg", "flac", "amr")
+
+@Composable
+fun AudioFileBubble(url: String, name: String, accent: Color, ink: Color, muted: Color) {
+    val ctx = LocalContext.current
+    val vs by me.chen.laidian.net.VoicePlayer.state.collectAsState()
+    val full = ChatClient.mediaUrl(url)
+    val playing = vs?.url == full
+    val progress = if (playing) vs?.progress ?: 0f else 0f
+    Column(Modifier.widthIn(min = 200.dp).padding(horizontal = 10.dp, vertical = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(accent.copy(alpha = 0.25f))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { me.chen.laidian.net.VoicePlayer.toggle(ctx, full) },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (playing) Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Box(Modifier.width(4.dp).height(14.dp).background(accent, RoundedCornerShape(1.dp)))
+                    Box(Modifier.width(4.dp).height(14.dp).background(accent, RoundedCornerShape(1.dp)))
+                } else androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Default.PlayArrow, contentDescription = "播放", tint = accent)
+            }
+            Column(Modifier.padding(start = 10.dp)) {
+                Text(name, color = ink, fontSize = 14.sp, maxLines = 1)
+                Text("音频", color = muted, fontSize = 11.sp)
+            }
+        }
+        if (playing) Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(12.dp)
+            .pointerInput(full) { detectTapGestures { off -> me.chen.laidian.net.VoicePlayer.seekTo(full, off.x / size.width) } }
+            .pointerInput(full) { detectHorizontalDragGestures { change, _ -> change.consume(); me.chen.laidian.net.VoicePlayer.seekTo(full, change.position.x / size.width) } },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Box(Modifier.fillMaxWidth().height(2.dp).background(accent.copy(alpha = 0.2f), RoundedCornerShape(1.dp)))
+            Box(Modifier.fillMaxWidth(progress.coerceIn(0.005f, 1f)).height(2.dp).background(accent, RoundedCornerShape(1.dp)))
+        }
+    }
+}
+
 /** 这些后缀在 app 里直接看 其余交给系统 */
 fun canViewInApp(name: String?): Boolean =
-    (name ?: "").substringAfterLast('.', "").lowercase() in setOf("pdf", "txt", "md", "log", "json", "csv", "docx")
+    (name ?: "").substringAfterLast('.', "").lowercase() in setOf(
+        "pdf", "txt", "md", "log", "json", "csv", "xml", "html", "py", "kt", "js",
+        "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "rtf", "wps",   // 服务端 LibreOffice 转 pdf
+        "tif", "tiff", "bmp",   // 服务端 PIL 转 png
+    )
 
 private fun cacheFile(ctx: Context, url: String, name: String): File {
     val dir = File(ctx.cacheDir, "files").apply { mkdirs() }

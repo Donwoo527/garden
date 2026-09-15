@@ -621,6 +621,8 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                                 }
                             }
                         }
+                        m.msgType == "file" && m.media != null && isAudioFile(m.filename ?: m.media) ->
+                            AudioFileBubble(m.media, m.filename ?: m.media.substringAfterLast('/'), skin.accent, fg, skin.muted)   // 0915 她问 mp3：气泡里直接放
                         m.msgType == "file" -> {
                             // 0915 她：文件点开能看（交给系统 app）长按能存到下载
                             var fmenu by remember { mutableStateOf(false) }

@@ -178,6 +178,19 @@ object ChatApi {
         } catch (e: Exception) { lastError = "翻译 ${e.javaClass.simpleName}"; null }
     }
 
+    /** 0915 Office 文件在 app 里看：服务端 LibreOffice 转 pdf，返回 /media/converted/xxx.pdf */
+    fun convertToPdf(ctx: Context, url: String): String? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/convert?url=" + java.net.URLEncoder.encode(url, "UTF-8")).header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                val body = JSONObject(r.body?.string() ?: "{}")
+                if (!r.isSuccessful) { lastError = "转 pdf HTTP ${r.code} ${body.optString("error").take(80)}"; return null }
+                // tiff 之类服务端转成 png 时返回 image；两种都直接给出地址 调用方按后缀分
+                body.optString("pdf", "").takeIf { it.isNotBlank() } ?: body.optString("image", "").takeIf { it.isNotBlank() }
+            }
+        } catch (e: Exception) { lastError = "转 pdf ${e.javaClass.simpleName}"; null }
+    }
+
     /** 0915 docx 在 app 里看：服务端 python-docx 抽文字 */
     fun docText(ctx: Context, url: String): String? {
         val req = Request.Builder().url(ChatClient.baseUrl() + "/doc_text?url=" + java.net.URLEncoder.encode(url, "UTF-8")).header("X-Token", TOKEN).get().build()
