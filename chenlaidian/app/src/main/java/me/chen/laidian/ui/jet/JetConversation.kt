@@ -390,13 +390,13 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
             }
         }
-        // 0915 她：顶栏和输入栏跟消息区之间要有阴影——两道 12dp 的软渐变 不画硬线
-        val shade = me.chen.laidian.ui.LocalSkin.current.muted
-        Box(Modifier.fillMaxWidth().height(12.dp).align(Alignment.TopCenter)
-            .background(Brush.verticalGradient(listOf(shade.copy(alpha = 0.22f), Color.Transparent))))
-        // 她：上面深 下面亮（新拟物的光从左上来 消息区是凹下去的一块）
-        Box(Modifier.fillMaxWidth().height(12.dp).align(Alignment.BottomCenter)
-            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.White.copy(alpha = 0.75f)))))
+        // 0915 她：消息区是凹下去的一块——上沿深影 下沿亮边；只有新拟物那张皮画（Skin.sunkenEdges）颜色跟它的凹凸阴影同一套
+        me.chen.laidian.ui.LocalSkin.current.sunkenEdges?.let { (dark, light) ->
+            Box(Modifier.fillMaxWidth().height(12.dp).align(Alignment.TopCenter)
+                .background(Brush.verticalGradient(listOf(dark, Color.Transparent))))
+            Box(Modifier.fillMaxWidth().height(12.dp).align(Alignment.BottomCenter)
+                .background(Brush.verticalGradient(listOf(Color.Transparent, light))))
+        }
         val jumpThreshold = with(LocalDensity.current) { 56.dp.toPx() }
         val jumpEnabled by remember { derivedStateOf { scrollState.firstVisibleItemIndex != 0 || scrollState.firstVisibleItemScrollOffset > jumpThreshold } }
         JumpToBottom(enabled = jumpEnabled, onClicked = { scope.launch { scrollState.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomCenter))
@@ -512,8 +512,9 @@ private fun ThinkingFold(thinking: String) {
     }
 }
 
-private val ChenBubbleShape = RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
-private val MeBubbleShape = RoundedCornerShape(20.dp, 4.dp, 20.dp, 20.dp)
+// 0915 她：四个角都圆 不留那个尖角
+private val ChenBubbleShape = RoundedCornerShape(20.dp)
+private val MeBubbleShape = RoundedCornerShape(20.dp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

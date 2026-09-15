@@ -34,6 +34,8 @@ abstract class Skin {
     /** 聊天气泡：她 0915 的图——辰浅蓝在左、她浅橘在右，字都是 ink */
     open val bubbleChen: Color = Color(0xFFF4D7B4)   // 0915 她定：辰橙奶油 她白 ——"颜色多而杂"收成一个色系
     open val bubbleMe: Color = Color(0xFFFFFFFF)
+    /** 0915 她：消息区上沿深影/下沿亮边只属于新拟物（它是"凹下去的一块"），颜色用同一套凹凸阴影；别的皮不画 */
+    open val sunkenEdges: Pair<Color, Color>? = null
     /** 凸起的面：卡片、按钮 */
     abstract fun raised(m: Modifier, corner: Dp): Modifier
     /** 凹陷的面：输入框、槽 */
@@ -51,6 +53,7 @@ object NeuSkin : Skin() {
     override val ink = Neu.Ink; override val muted = Neu.Dark
     override val accent = C.Blue      // 强调色她还没定，先沿用网页版的月蓝
     override val line = Neu.Dark.copy(alpha = 0.3f)
+    override val sunkenEdges = Neu.Dark.copy(alpha = 0.28f) to Neu.Light.copy(alpha = 0.85f)
     override fun raised(m: Modifier, corner: Dp) = m.neuRaised(corner)
     override fun sunken(m: Modifier, corner: Dp) = m.neuSunken(corner)
     override fun flat(m: Modifier, corner: Dp) = m    // 新拟物里"平"就是底色本身
