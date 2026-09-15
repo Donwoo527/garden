@@ -188,6 +188,8 @@ fun JetConversation(onCall: () -> Unit) {
             val ok = urls.isNotEmpty() && withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, urls, "") }
             sending = false
             if (!ok) Toast.makeText(ctx, "图片发送失败：" + (ChatApi.lastError ?: if (urls.isEmpty()) "读图/压缩失败" else "发送被拒"), Toast.LENGTH_LONG).show()
+            // 0915 教训：兜底路径不能静默——走了"原样上传"就得说出来，不然根因被盖住（这次盖了一整天）
+            else if (!original && ChatApi.lastError != null) Toast.makeText(ctx, "发了 但压缩没走通（${ChatApi.lastError}）发的是原图", Toast.LENGTH_LONG).show()
         }
     }
     // 0915 ③ 文件（不压 服务端直接入库当她发的一条）和拍照（系统相机预览图 → JPEG 88）
@@ -645,7 +647,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
             Box {
                 // 0915 她：图片和表情不套气泡 光秃秃的圆角图
                 AsyncImage(model = ChatClient.mediaUrl(u), imageLoader = loader, contentDescription = "图片", contentScale = ContentScale.Fit,
-                    modifier = Modifier.widthIn(max = 240.dp).clip(RoundedCornerShape(16.dp))
+                    modifier = Modifier.widthIn(max = 160.dp).clip(RoundedCornerShape(16.dp))   // 0915 她：太大 缩到一半宽（原 240）
                         .combinedClickable(onClick = {}, onLongClick = { imgMenu = true }))
                 DropdownMenu(expanded = imgMenu, onDismissRequest = { imgMenu = false }) {
                     DropdownMenuItem(text = { Text("存为表情") }, onClick = {

@@ -13,9 +13,11 @@ object ImageUtil {
     /** 压缩；失败返回 null 并把原因写进 ChatApi.lastError（0915 她那条"表情没存上：读图/压缩失败"之前只有四个字） */
     fun compress(ctx: Context, uri: Uri): ByteArray? {
         return try {
+            // ⚠️0915 根因：inJustDecodeBounds=true 时 decodeStream 本来就返回 null，之前拿它的返回值判"打不开"= 永远失败。
+            // 这就是 0914"图片发送失败"和 0915"表情没存上"的真凶（相册权限只是顺手加的）。判成功看 bounds.outWidth
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                ?: run { ChatApi.lastError = "打不开相册给的地址"; return null }
+            val probe = ctx.contentResolver.openInputStream(uri) ?: run { ChatApi.lastError = "打不开相册给的地址"; return null }
+            probe.use { BitmapFactory.decodeStream(it, null, bounds) }
             if (bounds.outWidth <= 0) { ChatApi.lastError = "解码失败（${bounds.outMimeType ?: "未知格式"}）"; return null }
             var sample = 1
             while (bounds.outWidth / sample > MAX * 2 || bounds.outHeight / sample > MAX * 2) sample *= 2
