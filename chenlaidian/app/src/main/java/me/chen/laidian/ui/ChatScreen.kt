@@ -208,6 +208,13 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, read: Boolea
         }
         return
     }
+    // 独立思考消息：跟 Jet 页同一套半折叠预览 别在安全模式下退化成整段大字
+    if (m.msgType == "thinking") {
+        Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.CenterStart) {
+            Box(Modifier.widthIn(max = 300.dp)) { me.chen.laidian.ui.jet.ThinkingPreview(m.text) }
+        }
+        return
+    }
     val mine = !m.isChen
     val fg = if (mine) Color.White else C.Ink
     val maxBubble = (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp * 0.8f).dp   // .msg-bubble-wrap max-width 80%
@@ -218,8 +225,8 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, read: Boolea
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
         if (!mine && !m.thinking.isNullOrBlank()) {
             Row(Modifier.clickable { showThink = !showThink }.padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (showThink) "▾ " else "▸ ", fontSize = 11.sp, color = C.Grey)
-                Text("思考", fontSize = 13.sp, color = C.Grey)
+                Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+                Text("思考", fontSize = 10.sp, color = C.Grey)
             }
             if (showThink) Surface(shape = RoundedCornerShape(8.dp), color = C.QuoteChen, modifier = Modifier.widthIn(max = 300.dp).padding(bottom = 6.dp)) {
                 Text(m.thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))

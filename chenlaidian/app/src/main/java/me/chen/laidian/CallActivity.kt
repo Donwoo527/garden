@@ -14,6 +14,9 @@ import android.view.WindowManager
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 /** 来电全屏页：锁屏上也能弹出来、亮屏、响铃、震动。接听后变通话页（M2 才有声音）。 */
 class CallActivity : AppCompatActivity() {
@@ -33,6 +36,9 @@ class CallActivity : AppCompatActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // edge-to-edge：状态栏透明铺满顶部
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
         // 0.35 毛玻璃：半透明窗口+背后模糊(Android 12+) 低版本只半透明也能透出一点背景
         if (Build.VERSION.SDK_INT >= 31) {
             window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
@@ -41,6 +47,15 @@ class CallActivity : AppCompatActivity() {
         (getSystemService(KEYGUARD_SERVICE) as KeyguardManager).requestDismissKeyguard(this, null)
 
         setContentView(R.layout.activity_call)
+        // 0.77 她点的：通话页铺到屏幕最顶端 不留状态栏那条紫色。背景延伸到顶 内容在状态栏下方开始
+        findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0)?.let { root ->
+            val basePad = root.paddingTop
+            ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+                val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+                v.setPadding(v.paddingLeft, basePad + top, v.paddingRight, v.paddingBottom)
+                insets
+            }
+        }
         // 0.41 文案分工（她点单）：title=主状态(辰打电话来了/等待接听中/通话中) state=STT子状态(听着呢/翻译中)
         val title = findViewById<TextView>(R.id.callText)
         title.text = intent.getStringExtra("text") ?: "辰打电话来了"

@@ -28,6 +28,7 @@ object ChatClient {
     val connected = MutableStateFlow(false)
     val sessionAlive = MutableStateFlow(false)
     val status = MutableStateFlow("idle")       // idle | thinking
+    val pendingThinking = MutableStateFlow<String?>(null)  // 独立推送的思考链，收到 msg 时清空
     val mood = MutableStateFlow("")
     val signature = MutableStateFlow("")
     val myMood = MutableStateFlow("")
@@ -106,7 +107,9 @@ object ChatClient {
                     messages.value = messages.value + m
                     onMessage?.invoke(m)
                 }
+                if (m.who == "chen") pendingThinking.value = null
             }
+            "thinking" -> pendingThinking.value = o.optString("text", "").takeIf { it.isNotBlank() }
             "status" -> status.value = o.optString("state", "idle")
             "read" -> o.optJSONArray("ids")?.let { a -> readIds.value = readIds.value + (0 until a.length()).map { i -> a.optString(i) } }
             "session_status" -> sessionAlive.value = o.optBoolean("alive", false)

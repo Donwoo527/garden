@@ -419,6 +419,18 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
+    // 思考类型消息：独立气泡，半折叠预览（像 TG 的 expandable blockquote）
+    if (m.msgType == "thinking") {
+        Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+            AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
+            Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
+                ThinkingPreview(m.text)
+                if (showTime) TimeUnder(m.timeLabel(), false, false)
+                Spacer(Modifier.height(3.dp))
+            }
+        }
+        return
+    }
     Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = if (isUserMe) Arrangement.End else Arrangement.Start) {
         if (!isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
         Column(Modifier.weight(1f, fill = false).padding(if (isUserMe) 0.dp else 0.dp), horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
@@ -481,13 +493,44 @@ private fun TimeUnder(time: String, isUserMe: Boolean, read: Boolean) {
 }
 
 @Composable
+internal fun ThinkingPreview(thinking: String) {
+    var open by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tr by remember(thinking) { mutableStateOf<String?>(null) }
+    Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 4.dp)) {
+        Column(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 2.dp)) {
+                Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+                Text("思考", fontSize = 10.sp, color = C.Grey)
+            }
+            Text(thinking, fontSize = 12.sp, color = C.Grey, lineHeight = 16.sp, maxLines = if (open) Int.MAX_VALUE else 3, overflow = if (open) TextOverflow.Clip else TextOverflow.Ellipsis)
+            if (open) {
+                Text(
+                    if (tr == null) "翻译" else "收起翻译", fontSize = 12.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
+                    modifier = Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                        if (tr != null) tr = null
+                        else scope.launch {
+                            ChatApi.lastError = null
+                            val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, thinking) }
+                            if (t != null) tr = t else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+                tr?.let { Text(it, fontSize = 12.sp, color = C.Grey, lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp)) }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ThinkingFold(thinking: String) {
     var open by remember { mutableStateOf(false) }
     // 0915 她的图：收起时箭头朝右 展开朝下（"点一下左边箭头可以展开"）
     // 0915 她：点的时候出灰框——那是点击水波纹(indication) 关掉
     Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(if (open) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, contentDescription = null, tint = C.Grey, modifier = Modifier.size(18.dp))
-        Text("思考", fontSize = 13.sp, color = C.Grey)
+        Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+        Text("思考", fontSize = 10.sp, color = C.Grey)
     }
     // 0915 她点的：思考链常是英文 展开后可以点"翻译"（服务端 MiniMax）译文接在下面
     var tr by remember(thinking) { mutableStateOf<String?>(null) }

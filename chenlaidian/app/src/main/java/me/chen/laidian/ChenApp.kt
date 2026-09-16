@@ -22,12 +22,18 @@ class ChenApp : Application() {
             } catch (_: Exception) {}
             previous?.uncaughtException(t, e)
         }
+        // 0.78 安全模式只兜一次启动：crash.txt 一读到就改名成待上传 下次启动不再进安全模式；
+        // 上传失败的话留在 pending 里每次启动重试 不拿聊天页当人质（0916 她：上传一直不成功 页面一直是旧的）
+        val pending = File(filesDir, "crash_pending.txt")
         if (file.exists()) {
             AppState.safeMode = true
-            val text = file.readText().take(3000)
+            if (!file.renameTo(pending)) { try { pending.writeText(file.readText()); file.delete() } catch (_: Exception) {} }
+        }
+        if (pending.exists()) {
+            val text = pending.readText().take(3000)
             Thread {
                 val ok = me.chen.laidian.net.ChatApi.reportCrash(applicationContext, text)
-                if (ok) file.delete()
+                if (ok) pending.delete()
             }.start()
         }
     }

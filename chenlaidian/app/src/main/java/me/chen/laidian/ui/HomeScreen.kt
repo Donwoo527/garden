@@ -10,8 +10,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -72,10 +74,11 @@ import me.chen.laidian.net.ChatClient
 import me.chen.laidian.net.ImageUtil
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-/** 主页：照网页版——两个点、辰、心情、签名、在一起 N 天、天气卡+时钟卡、六宫格。点头像 = 戳一戳。 */
+/** 主页（0916 她定的：只留一个主角）：身份卡（两个点、辰、心情、签名、状态、在一起 N 天）→ 问候+温度 → 年进度 → 时钟卡+朋友圈卡 → 一排小圆钮。点头像 = 戳一戳。 */
 @Composable
 fun HomeScreen(onCall: () -> Unit) {
     var sub by remember { mutableStateOf<String?>(null) }
@@ -106,74 +109,91 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
 
     // 0.29 她的指令：主页整页新拟物
-    Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    // 0916 她定的：主页只留一个主角——"辰"身份卡是主角，其余全是小的、不等宽、故意留空（她："分布太平均 眼睛没地方落"）
+    val skin = LocalSkin.current
+    val cal = Calendar.getInstance().apply { time = now }
+    val greeting = when (cal.get(Calendar.HOUR_OF_DAY)) { in 5..10 -> "早上好"; in 11..13 -> "中午好"; in 14..17 -> "下午好"; else -> "晚上好" }
+    val yearPct = (cal.get(Calendar.DAY_OF_YEAR) * 100 / 365).coerceIn(0, 100)
+    Column(Modifier.fillMaxSize().background(skin.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(48.dp))
-        Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
-            DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
-        }
-        Spacer(Modifier.height(16.dp))
-        Text("辰", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
-        Text(mood.ifBlank { if (alive) "发呆中" else "不在" }, fontSize = 15.sp, color = C.Grey, modifier = Modifier.padding(top = 4.dp))
-        if (sig.isNotBlank()) Text(sig, fontSize = 14.sp, color = C.Grey, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
-        Text(
-            "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus" + (if (usageStatus.isNotBlank()) " · 查岗$usageStatus" else ""),
-            fontSize = 11.sp,
-            color = if (chatConn && voiceStatus == "辰在线") C.Grey else Color(0xFFE53935),
-            modifier = Modifier.padding(top = 6.dp),
-        )
-        Spacer(Modifier.height(20.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text("在一起 ", fontSize = 16.sp, color = C.Ink)
-            Text("$days", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = C.Blue)
-            Text(" 天", fontSize = 16.sp, color = C.Ink)
-        }
-        Spacer(Modifier.height(20.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            NeuCard(Modifier.weight(2f)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("宁波", fontSize = 12.sp, color = C.Grey)
-                    val w = weather
-                    if (w == null || w.has("error")) {
-                        Text("--°", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = C.Ink)
-                        Text("天气加载中", fontSize = 12.sp, color = C.Grey)
-                    } else {
-                        Row(verticalAlignment = Alignment.Top) {
-                            Column(Modifier.weight(1f)) {
-                                Text("${w.optString("temp")}°", fontSize = 34.sp, fontWeight = FontWeight.Bold, color = C.Ink)
-                                Text("${w.optString("desc")} · 体感${w.optString("feels")}°", fontSize = 12.sp, color = C.Grey)
-                            }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text("💧 ${w.optString("humidity")}%", fontSize = 12.sp, color = C.Grey)
-                                Text("🌬 ${w.optString("wind")}km/h", fontSize = 12.sp, color = C.Grey)
-                                Text("↑${w.optString("maxTemp")}° ↓${w.optString("minTemp")}°", fontSize = 12.sp, color = C.Grey)
-                            }
-                        }
-                    }
+        // 1. 主角：全宽身份卡——头像/辰/心情/签名/状态行原样搬进来，底下压整页最重的"在一起 N 天"
+        NeuCard(Modifier.padding(horizontal = 16.dp)) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
+                    DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
+                }
+                Spacer(Modifier.height(12.dp))
+                Text("辰", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+                Text(mood.ifBlank { if (alive) "发呆中" else "不在" }, fontSize = 15.sp, color = C.Grey, modifier = Modifier.padding(top = 4.dp))
+                if (sig.isNotBlank()) Text(sig, fontSize = 14.sp, color = C.Grey, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
+                Text(
+                    "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus" + (if (usageStatus.isNotBlank()) " · 查岗$usageStatus" else ""),
+                    fontSize = 11.sp,
+                    color = if (chatConn && voiceStatus == "辰在线") C.Grey else Color(0xFFE53935),
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                Spacer(Modifier.height(20.dp))
+                Row {
+                    Text("在一起 ", fontSize = 16.sp, color = C.Ink, modifier = Modifier.alignByBaseline())
+                    Text("$days", fontSize = 52.sp, fontWeight = FontWeight.Bold, color = skin.accent, modifier = Modifier.alignByBaseline())
+                    Text(" 天", fontSize = 16.sp, color = C.Ink, modifier = Modifier.alignByBaseline())
                 }
             }
-            NeuCard(Modifier.weight(1f)) {
-                Column(Modifier.padding(vertical = 22.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(SimpleDateFormat("HH:mm", Locale.CHINA).format(now), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+        }
+        Spacer(Modifier.height(20.dp))
+        // 2. 卡外不装框：左问候、右温度大字（天气获取逻辑没动，只改了展示）
+        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(greeting, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = skin.ink)
+                Text("宁波", fontSize = 11.sp, color = skin.muted, modifier = Modifier.padding(top = 2.dp))
+            }
+            val w = weather
+            Column(horizontalAlignment = Alignment.End) {
+                if (w == null || w.has("error")) {
+                    Text("--°", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = skin.ink)
+                    Text("天气加载中", fontSize = 11.sp, color = skin.muted)
+                } else {
+                    Text("${w.optString("temp")}°", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = skin.ink)
+                    Text(w.optString("desc"), fontSize = 11.sp, color = skin.muted)
+                }
+            }
+        }
+        Spacer(Modifier.height(20.dp))
+        // 3. 今年已过 X%：8dp 凹槽（皮肤色）+ accent 填充
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+            Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(skin.line)) {
+                skin.sunkenEdges?.let { (dark, light) ->   // 新拟物：上沿深影、下沿亮边 = 凹下去的槽
+                    Box(Modifier.fillMaxWidth().height(2.dp).background(dark))
+                    Box(Modifier.fillMaxWidth().height(1.dp).align(Alignment.BottomStart).background(light))
+                }
+                Box(Modifier.fillMaxWidth(yearPct / 100f).height(8.dp).clip(RoundedCornerShape(4.dp)).background(skin.accent))
+            }
+            Text("今年已过 $yearPct%", fontSize = 11.sp, color = skin.muted, modifier = Modifier.padding(top = 6.dp))
+        }
+        Spacer(Modifier.height(24.dp))
+        // 4. 两张小卡不等宽：时钟 1 : 朋友圈 1.4
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(IntrinsicSize.Max), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            NeuCard(Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.fillMaxSize().padding(vertical = 18.dp, horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Text(SimpleDateFormat("HH:mm", Locale.CHINA).format(now), fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
                     Text(SimpleDateFormat("M/d EEE", Locale.CHINA).format(now), fontSize = 12.sp, color = C.Grey)
                 }
             }
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            NeuIconCard("共享相册", Icons.Default.Share, C.Orange, Modifier.weight(1f)) { todo("共享相册") }
-            NeuIconCard("互送礼物", Icons.Default.Star, C.Orange, Modifier.weight(1f)) { todo("互送礼物") }
-            NeuIconCard("回忆", Icons.Default.Favorite, C.Orange, Modifier.weight(1f)) { todo("回忆") }
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.weight(1f)) {
-                NeuIconCard("朋友圈", Icons.Default.Place, C.Blue, Modifier.fillMaxWidth()) { onOpen("moments") }
+            Box(Modifier.weight(1.4f).fillMaxHeight()) {
+                NeuIconCard("朋友圈", Icons.Default.Place, C.Blue, Modifier.fillMaxSize()) { onOpen("moments") }
                 if (unread > 0) Box(Modifier.align(Alignment.TopEnd).padding(10.dp).size(18.dp).clip(CircleShape).background(Color(0xFFE0245E)), contentAlignment = Alignment.Center) {
                     Text(if (unread > 9) "9+" else "$unread", fontSize = 10.sp, color = Color.White)
                 }
             }
-            NeuIconCard("一起听歌", Icons.Default.PlayArrow, C.Blue, Modifier.weight(1f)) { todo("一起听歌") }
-            NeuIconCard("一起看书", Icons.Default.DateRange, C.Blue, Modifier.weight(1f)) { todo("一起看书") }
+        }
+        Spacer(Modifier.height(24.dp))
+        // 5. 五个空壳缩成一排小圆钮，不再各占一张大卡
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            NeuRoundButton("共享相册", Icons.Default.Share, Modifier.weight(1f)) { todo("共享相册") }
+            NeuRoundButton("互送礼物", Icons.Default.Star, Modifier.weight(1f)) { todo("互送礼物") }
+            NeuRoundButton("回忆", Icons.Default.Favorite, Modifier.weight(1f)) { todo("回忆") }
+            NeuRoundButton("一起听歌", Icons.Default.PlayArrow, Modifier.weight(1f)) { todo("一起听歌") }
+            NeuRoundButton("一起看书", Icons.Default.DateRange, Modifier.weight(1f)) { todo("一起看书") }
         }
     }
 }
@@ -282,7 +302,7 @@ private fun NeuCard(modifier: Modifier = Modifier, content: @Composable () -> Un
 /** 0.29 新拟物图标卡：凸台+彩色图标（她参考图的点缀风），按压整卡变凹 */
 @Composable
 private fun NeuIconCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Box(modifier.pressable(18.dp, onClick = onClick)) {
+    Box(modifier.pressable(18.dp, onClick = onClick), contentAlignment = Alignment.Center) {   // 0916 居中：被拉高时内容不贴顶
         Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(44.dp).raised(14.dp), contentAlignment = Alignment.Center) {
                 Icon(icon, contentDescription = title, tint = tint, modifier = Modifier.size(22.dp))
@@ -290,5 +310,17 @@ private fun NeuIconCard(title: String, icon: androidx.compose.ui.graphics.vector
             Spacer(Modifier.height(8.dp))
             Text(title, fontSize = 13.sp, color = LocalSkin.current.ink)
         }
+    }
+}
+
+/** 0916 她定的：主页只留一个主角——空壳功能缩成 44dp 圆钮：凸台里一个图标、下面 10sp 小字，按住变凹 */
+@Composable
+private fun NeuRoundButton(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(44.dp).pressable(22.dp, onClick = onClick), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = title, tint = LocalSkin.current.muted, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(title, fontSize = 10.sp, color = LocalSkin.current.muted)
     }
 }
