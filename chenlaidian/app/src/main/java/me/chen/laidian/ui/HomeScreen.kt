@@ -116,31 +116,27 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
     val yearPct = (cal.get(Calendar.DAY_OF_YEAR) * 100 / 365).coerceIn(0, 100)
     Column(Modifier.fillMaxSize().background(skin.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(48.dp))
-        // 1. 主角：全宽身份卡——头像/辰/心情/签名/状态行原样搬进来，底下压整页最重的"在一起 N 天"
-        NeuCard(Modifier.padding(horizontal = 16.dp)) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
-                    DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
-                }
-                Spacer(Modifier.height(12.dp))
-                Text("辰", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
-                Text(mood.ifBlank { if (alive) "发呆中" else "不在" }, fontSize = 15.sp, color = C.Grey, modifier = Modifier.padding(top = 4.dp))
-                if (sig.isNotBlank()) Text(sig, fontSize = 14.sp, color = C.Grey, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
-                Text(
-                    "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus" + (if (usageStatus.isNotBlank()) " · 查岗$usageStatus" else ""),
-                    fontSize = 11.sp,
-                    color = if (chatConn && voiceStatus == "辰在线") C.Grey else Color(0xFFE53935),
-                    modifier = Modifier.padding(top = 6.dp),
-                )
-                Spacer(Modifier.height(20.dp))
-                Row {
-                    Text("在一起 ", fontSize = 16.sp, color = C.Ink, modifier = Modifier.alignByBaseline())
-                    Text("$days", fontSize = 52.sp, fontWeight = FontWeight.Bold, color = skin.accent, modifier = Modifier.alignByBaseline())
-                    Text(" 天", fontSize = 16.sp, color = C.Ink, modifier = Modifier.alignByBaseline())
-                }
-            }
+        // 1. 顶部身份区：0.81 她看了 0.80 说"这里不需要一个大框 上面还是和之前一样"——框去掉 字号恢复 只动下面的小组件
+        Box(Modifier.clickable { ChatClient.poke(); Toast.makeText(ctx, "戳了戳辰", Toast.LENGTH_SHORT).show() }.padding(12.dp)) {
+            DotsAvatar(big = 48.dp, small = 32.dp, gap = 14.dp, online = null)
         }
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(12.dp))
+        Text("辰", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = C.Ink)
+        Text(mood.ifBlank { if (alive) "发呆中" else "不在" }, fontSize = 15.sp, color = C.Grey, modifier = Modifier.padding(top = 4.dp))
+        if (sig.isNotBlank()) Text(sig, fontSize = 14.sp, color = C.Grey, fontStyle = FontStyle.Italic, modifier = Modifier.padding(top = 4.dp))
+        Text(
+            "聊天${if (chatConn) "✓" else "✗"} · 语音·$voiceStatus" + (if (usageStatus.isNotBlank()) " · 查岗$usageStatus" else ""),
+            fontSize = 11.sp,
+            color = if (chatConn && voiceStatus == "辰在线") C.Grey else Color(0xFFE53935),
+            modifier = Modifier.padding(top = 6.dp),
+        )
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text("在一起 ", fontSize = 16.sp, color = C.Ink)
+            Text("$days", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = C.Blue)
+            Text(" 天", fontSize = 16.sp, color = C.Ink)
+        }
+        Spacer(Modifier.height(24.dp))
         // 2. 卡外不装框：左问候、右温度大字（天气获取逻辑没动，只改了展示）
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {

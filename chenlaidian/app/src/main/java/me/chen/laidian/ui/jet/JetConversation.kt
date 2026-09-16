@@ -159,7 +159,8 @@ fun JetConversation(onCall: () -> Unit) {
     val lastId = msgs.lastOrNull()?.id
     LaunchedEffect(lastId) { if (scrollState.firstVisibleItemIndex <= 1) scrollState.scrollToItem(0) }
     val nearTop by remember { derivedStateOf { val info = scrollState.layoutInfo; info.totalItemsCount > 0 && (info.visibleItemsInfo.lastOrNull()?.index ?: -1) >= info.totalItemsCount - 3 } }
-    LaunchedEffect(nearTop) { if (nearTop && query.isBlank()) ChatClient.loadMore() }
+    // 0916 她："翻到顶就不动了"：一页折叠的思考行太矮 加载完视口仍在顶 nearTop 不变就不再触发——加上 msgs.size 每来一页重判 直到填满或没有更多
+    LaunchedEffect(nearTop, msgs.size) { if (nearTop && query.isBlank()) ChatClient.loadMore() }
     // 0915 ④ 发图可勾"原图"：选完先弹一个小框 勾了传原文件 不勾走压缩（长边 1600 JPEG 82）；失败 Toast 带原因
     var pendingImages by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
     var sendOriginal by remember { mutableStateOf(false) }

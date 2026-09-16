@@ -118,7 +118,7 @@ fun ChatScreen(onCall: () -> Unit) {
     val lastId = msgs.lastOrNull()?.id
     LaunchedEffect(lastId) { if (listState.firstVisibleItemIndex <= 1) listState.scrollToItem(0) }
     val nearTop by remember { derivedStateOf { val info = listState.layoutInfo; info.visibleItemsInfo.lastOrNull()?.index ?: -1 >= info.totalItemsCount - 3 && info.totalItemsCount > 0 } }
-    LaunchedEffect(nearTop) { if (nearTop && query.isBlank()) ChatClient.loadMore() }
+    LaunchedEffect(nearTop, msgs.size) { if (nearTop && query.isBlank()) ChatClient.loadMore() }   // 0916 同 Jet 页：每来一页重判
 
     Column(Modifier.fillMaxSize().background(C.Bg)) {
         Header(connected, alive, mood, sig, onCall, onSearch = { searching = !searching; if (!searching) query = "" }, onAvatar = { showCard = true })

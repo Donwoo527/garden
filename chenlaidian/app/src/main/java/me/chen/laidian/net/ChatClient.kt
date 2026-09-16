@@ -91,12 +91,14 @@ object ChatClient {
             "auth" -> { connected.value = true; backoffMs = 1000L }
             "history" -> {
                 val list = Msg.list(o.optJSONArray("items"))
+                // 0916 服务端按真消息数分页并带 has_more（思考行不占额度）；老服务端没这个字段就退回按条数猜
+                val hasMore = if (o.has("has_more")) o.optBoolean("has_more", true) else list.size >= LIMIT
                 if (o.optBoolean("initial")) {
                     messages.value = list.sortedBy { it.ts }
-                    noMore = false
+                    noMore = !hasMore
                 } else {
                     loading = false
-                    if (list.size < LIMIT) noMore = true
+                    noMore = !hasMore
                     val have = messages.value.map { it.id }.toHashSet()
                     messages.value = (list.filter { it.id !in have } + messages.value).sortedBy { it.ts }
                 }
