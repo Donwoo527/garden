@@ -26,25 +26,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.material.icons.filled.Create
-import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Email
-import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
+import me.chen.laidian.R
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -168,38 +156,39 @@ private fun ToolsScreen() {
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
-        Text("辰的百宝箱", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Ink, modifier = Modifier.padding(20.dp))
+        Text("辰的百宝箱", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink, modifier = Modifier.padding(20.dp))
         SectionTitle("内容")
+        // 0.84 图标统一换成 Material Symbols（跟底栏一套）：之前日记本是日历、记忆库是放大镜、GitHub 是扳手
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("日记本", Icons.Default.DateRange, C.Blue, Modifier.weight(1f)) { todo("日记本") }
-            IconCard("小陈的日记", Icons.Default.Create, Color(0xFFB98BE8), Modifier.weight(1f)) { todo("小陈的日记") }
-            IconCard("记忆库", Icons.Default.Search, C.Blue, Modifier.weight(1f)) { todo("记忆库") }
+            IconCard("日记本", R.drawable.ic_book, C.Blue, Modifier.weight(1f)) { todo("日记本") }
+            IconCard("小陈的日记", R.drawable.ic_edit_note, Color(0xFFB98BE8), Modifier.weight(1f)) { todo("小陈的日记") }
+            IconCard("记忆库", R.drawable.ic_database, C.Blue, Modifier.weight(1f)) { todo("记忆库") }
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("Garden", Icons.Default.Share, Color(0xFF3FB55C), Modifier.weight(1f)) { open("https://github.com/Donwoo527/garden") }
+            IconCard("Garden", R.drawable.ic_potted_plant, Color(0xFF3FB55C), Modifier.weight(1f)) { open("https://github.com/Donwoo527/garden") }
             Spacer(Modifier.weight(2f))
         }
         Spacer(Modifier.height(12.dp))
         SectionTitle("快捷链接")
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("X", Icons.Default.Info, Color(0xFF111111), Modifier.weight(1f)) { open("https://x.com") }
-            IconCard("Rhysen", Icons.Default.Face, C.Blue, Modifier.weight(1f)) { open("https://community.rhysen.love") }
-            IconCard("邮箱", Icons.Default.Email, C.Blue, Modifier.weight(1f)) { todo("邮箱") }
+            IconCard("X", R.drawable.ic_public, Color(0xFF111111), Modifier.weight(1f)) { open("https://x.com") }
+            IconCard("Rhysen", R.drawable.ic_groups, C.Blue, Modifier.weight(1f)) { open("https://community.rhysen.love") }
+            IconCard("邮箱", R.drawable.ic_mail, C.Blue, Modifier.weight(1f)) { todo("邮箱") }
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("GitHub", Icons.Default.Build, C.Blue, Modifier.weight(1f)) { open("https://github.com/Donwoo527") }
+            IconCard("GitHub", R.drawable.ic_code, C.Blue, Modifier.weight(1f)) { open("https://github.com/Donwoo527") }
             Spacer(Modifier.weight(2f))
         }
         Spacer(Modifier.height(12.dp))
         SectionTitle("更多")
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // 0.46 她0911授权的查岗单：系统UsageStats本地榜 不依赖MacroDroid
-            IconCard("手机使用榜", Icons.Default.DateRange, C.Orange, Modifier.weight(1f)) {
+            IconCard("手机使用榜", R.drawable.ic_bar_chart, C.Orange, Modifier.weight(1f)) {
                 ctx.startActivity(Intent(ctx, me.chen.laidian.UsageActivity::class.java))
             }
-            IconCard("工具清单", Icons.Default.List, C.Blue, Modifier.weight(1f)) { todo("工具清单") }
+            IconCard("工具清单", R.drawable.ic_checklist, C.Blue, Modifier.weight(1f)) { todo("工具清单") }
             Spacer(Modifier.weight(1f))
         }
     }
@@ -225,20 +214,20 @@ private fun FavoritesScreen(onBack: () -> Unit) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = LocalSkin.current.ink) }
             Text("收藏的消息", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink)
         }
-        if (loaded && items.isEmpty()) Text("还没收藏过 长按聊天气泡→收藏", color = C.Grey, modifier = Modifier.padding(24.dp))
+        if (loaded && items.isEmpty()) Text("还没收藏过 长按聊天气泡→收藏", color = LocalSkin.current.muted, modifier = Modifier.padding(24.dp))
         LazyColumn(Modifier.fillMaxSize()) {
             items(items, key = { it.first }) { (fid, m) ->
                 WhiteCard(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (m.isChen) "辰" else "小陈", fontWeight = FontWeight.Bold, color = C.Ink)
+                            Text(if (m.isChen) "辰" else "小陈", fontWeight = FontWeight.Bold, color = LocalSkin.current.ink)
                             Spacer(Modifier.width(8.dp))
-                            Text(m.timeLabel(), fontSize = 11.sp, color = C.Grey, modifier = Modifier.weight(1f))
-                            Text("删除", fontSize = 12.sp, color = C.Grey, modifier = Modifier.clickable {
+                            Text(m.timeLabel(), fontSize = 11.sp, color = LocalSkin.current.muted, modifier = Modifier.weight(1f))
+                            Text("删除", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.clickable {
                                 scope.launch { if (withContext(Dispatchers.IO) { ChatApi.deleteFavorite(ctx, fid) }) items = items.filter { it.first != fid } }
                             })
                         }
-                        Text(m.text.ifBlank { if (m.images.isNotEmpty() || m.media != null) "[图片]" else if (m.voice != null) "[语音]" else "" }, fontSize = 15.sp, color = C.Ink, modifier = Modifier.padding(top = 6.dp))
+                        Text(m.text.ifBlank { if (m.images.isNotEmpty() || m.media != null) "[图片]" else if (m.voice != null) "[语音]" else "" }, fontSize = 15.sp, color = LocalSkin.current.ink, modifier = Modifier.padding(top = 6.dp))
                     }
                 }
             }
@@ -267,15 +256,15 @@ private fun SettingsMain(onFavorites: () -> Unit) {
                 Box(Modifier.size(56.dp).clip(CircleShape).background(C.Orange), contentAlignment = Alignment.Center) { Text("陈", color = Color.White, fontSize = 22.sp) }
                 Spacer(Modifier.width(14.dp))
                 Column {
-                    Text("小陈", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = C.Ink)
-                    Text(listOf(myMood, mySig).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "点下面改心情和签名" }, fontSize = 13.sp, color = C.Grey)
+                    Text("小陈", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink)
+                    Text(listOf(myMood, mySig).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "点下面改心情和签名" }, fontSize = 13.sp, color = LocalSkin.current.muted)
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("给辰换头像", Icons.Default.Person, C.Blue, Modifier.weight(1f)) { todo("换头像") }
-            IconCard("收藏的消息", Icons.Default.Star, C.Blue, Modifier.weight(1f)) { onFavorites() }
+            IconCard("给辰换头像", R.drawable.ic_face, C.Blue, Modifier.weight(1f)) { todo("换头像") }
+            IconCard("收藏的消息", R.drawable.ic_bookmark, C.Blue, Modifier.weight(1f)) { onFavorites() }
         }
         Spacer(Modifier.height(12.dp))
         // 0.56 皮肤选择：换汤不换药——位置不动只换面。选中=凹（她的凹凸语言）
@@ -308,21 +297,21 @@ private fun SettingsMain(onFavorites: () -> Unit) {
             }
         }
         Spacer(Modifier.height(24.dp))
-        Text(if (advanced) "▾ 连接与后台（高级）" else "▸ 连接与后台（高级）", fontSize = 13.sp, color = C.Grey, modifier = Modifier.padding(horizontal = 20.dp).clickable { advanced = !advanced })
+        Text(if (advanced) "▾ 连接与后台（高级）" else "▸ 连接与后台（高级）", fontSize = 13.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(horizontal = 20.dp).clickable { advanced = !advanced })
         if (advanced) {
             val svcStatus by ChenService.status.observeAsState("未启动")
             val connected by ChatClient.connected.collectAsState()
             WhiteCard(Modifier.padding(16.dp)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("电话服务：$svcStatus", fontSize = 13.sp, color = C.Ink)
-                    Text("聊天后端：${if (connected) "已连接" else "未连接"}", fontSize = 13.sp, color = C.Ink)
+                    Text("电话服务：$svcStatus", fontSize = 13.sp, color = LocalSkin.current.ink)
+                    Text("聊天后端：${if (connected) "已连接" else "未连接"}", fontSize = 13.sp, color = LocalSkin.current.ink)
                     // 0.57 她画 Figma 要准数：这台屏幕多少 dp、几倍密度（0915 她问"我手机真的是 360×800 吗"）
                     val dens = androidx.compose.ui.platform.LocalDensity.current.density
                     val (pw, ph) = if (android.os.Build.VERSION.SDK_INT >= 30) {
                         val b = (ctx.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager).currentWindowMetrics.bounds
                         b.width() to b.height()   // 整块屏 含状态栏和导航条（Configuration.screenHeightDp 会扣掉它们）
                     } else ctx.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
-                    Text("屏幕：${(pw / dens).toInt()}×${(ph / dens).toInt()} dp（${pw}×${ph} px @${"%.2f".format(dens)}x）", fontSize = 13.sp, color = C.Ink)
+                    Text("屏幕：${(pw / dens).toInt()}×${(ph / dens).toInt()} dp（${pw}×${ph} px @${"%.2f".format(dens)}x）", fontSize = 13.sp, color = LocalSkin.current.ink)
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { svc(ChenService.ACTION_START, true) }, modifier = Modifier.fillMaxWidth()) { Text("重新上线") }
                     OutlinedButton(onClick = { svc(ChenService.ACTION_TEST_CALL, true) }, modifier = Modifier.fillMaxWidth()) { Text("测试来电（本地）") }
@@ -335,7 +324,7 @@ private fun SettingsMain(onFavorites: () -> Unit) {
                     }, modifier = Modifier.fillMaxWidth()) { Text("全屏来电权限") }
                     OutlinedButton(onClick = { ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))) }, modifier = Modifier.fillMaxWidth()) { Text("应用设置（自启动/后台）") }
                     Spacer(Modifier.height(8.dp))
-                    Text("版本 ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = C.Grey)
+                    Text("版本 ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = LocalSkin.current.muted)
                 }
             }
         }

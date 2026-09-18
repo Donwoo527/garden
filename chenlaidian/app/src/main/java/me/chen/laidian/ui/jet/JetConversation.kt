@@ -116,6 +116,7 @@ import me.chen.laidian.net.ImageUtil
 import me.chen.laidian.net.VoicePlayer
 import me.chen.laidian.ui.C
 import me.chen.laidian.ui.DotsAvatar
+import me.chen.laidian.ui.LocalSkin
 import me.chen.laidian.ui.raised
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
@@ -261,11 +262,11 @@ fun JetConversation(onCall: () -> Unit) {
                 onForward = { forwardText = it.text },
                 onFav = { m -> scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, m) }; Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show() } },
                 onCopy = { m -> (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.text)); Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show() })
-            if (sending) Text("图片上传中…", fontSize = 12.sp, color = C.Grey, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
-            if (status == "thinking") Text("辰在想…", fontSize = 12.sp, color = C.Grey, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
+            if (sending) Text("图片上传中…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
+            if (status == "thinking") Text("辰在想…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
             replyTo?.let { q ->
                 Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("引用 ${if (q.isChen) "辰" else "小陈"}：${q.text.take(40)}", fontSize = 12.sp, color = C.Grey, modifier = Modifier.weight(1f))
+                    Text("引用 ${if (q.isChen) "辰" else "小陈"}：${q.text.take(40)}", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.weight(1f))
                     IconButton(onClick = { replyTo = null }) { Icon(Icons.Default.Close, contentDescription = "取消引用") }
                 }
             }
@@ -408,7 +409,7 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
 private fun SystemPill(text: String) {
     Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)) {
-            Text(text, fontSize = 13.sp, color = C.Grey, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+            Text(text, fontSize = 13.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
         }
     }
 }
@@ -477,7 +478,7 @@ private fun TimeMini(time: String, read: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(time, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(4.dp))
-        Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else C.Grey)
+        Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else LocalSkin.current.muted)
     }
 }
 
@@ -488,7 +489,7 @@ private fun TimeUnder(time: String, isUserMe: Boolean, read: Boolean) {
         Text(time, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (isUserMe) {
             Spacer(Modifier.width(4.dp))
-            Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else C.Grey)
+            Text(if (read) "✓✓" else "✓", fontSize = 11.sp, color = if (read) C.Green else LocalSkin.current.muted)
         }
     }
 }
@@ -503,9 +504,9 @@ internal fun ThinkingPreview(thinking: String) {
         Column(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(horizontal = 10.dp, vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 2.dp)) {
                 Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
-                Text("思考", fontSize = 10.sp, color = C.Grey)
+                Text("思考", fontSize = 10.sp, color = LocalSkin.current.muted)
             }
-            Text(thinking, fontSize = 12.sp, color = C.Grey, lineHeight = 16.sp, maxLines = if (open) Int.MAX_VALUE else 3, overflow = if (open) TextOverflow.Clip else TextOverflow.Ellipsis)
+            Text(thinking, fontSize = 12.sp, color = LocalSkin.current.muted, lineHeight = 16.sp, maxLines = if (open) Int.MAX_VALUE else 3, overflow = if (open) TextOverflow.Clip else TextOverflow.Ellipsis)
             if (open) {
                 Text(
                     if (tr == null) "翻译" else "收起翻译", fontSize = 12.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
@@ -518,7 +519,7 @@ internal fun ThinkingPreview(thinking: String) {
                         }
                     },
                 )
-                tr?.let { Text(it, fontSize = 12.sp, color = C.Grey, lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp)) }
+                tr?.let { Text(it, fontSize = 12.sp, color = LocalSkin.current.muted, lineHeight = 16.sp, modifier = Modifier.padding(top = 4.dp)) }
             }
         }
     }
@@ -531,7 +532,7 @@ private fun ThinkingFold(thinking: String) {
     // 0915 她：点的时候出灰框——那是点击水波纹(indication) 关掉
     Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
-        Text("思考", fontSize = 10.sp, color = C.Grey)
+        Text("思考", fontSize = 10.sp, color = LocalSkin.current.muted)
     }
     // 0915 她点的：思考链常是英文 展开后可以点"翻译"（服务端 MiniMax）译文接在下面
     var tr by remember(thinking) { mutableStateOf<String?>(null) }
@@ -539,7 +540,7 @@ private fun ThinkingFold(thinking: String) {
     val scope = rememberCoroutineScope()
     if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            Text(thinking, fontSize = 13.sp, color = C.Grey, lineHeight = 17.sp)
+            Text(thinking, fontSize = 13.sp, color = LocalSkin.current.muted, lineHeight = 17.sp)
             Text(
                 if (tr == null) "翻译" else "收起翻译", fontSize = 12.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
                 modifier = Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
@@ -551,7 +552,7 @@ private fun ThinkingFold(thinking: String) {
                     }
                 },
             )
-            tr?.let { Text(it, fontSize = 13.sp, color = C.Grey, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
+            tr?.let { Text(it, fontSize = 13.sp, color = LocalSkin.current.muted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
         }
     }
 }
@@ -805,16 +806,16 @@ private fun ProfileCard(alive: Boolean, mood: String, sig: String, onDismiss: ()
     AlertDialog(onDismissRequest = onDismiss, confirmButton = {}, containerColor = me.chen.laidian.ui.LocalSkin.current.bg, text = {
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth().height(90.dp).background(Brush.verticalGradient(listOf(Color(0xFF8FB0DA), Color(0xFFC9D8EA))), RoundedCornerShape(12.dp)))
-            Surface(shape = RoundedCornerShape(16.dp), color = C.Surface, shadowElevation = 2.dp, modifier = Modifier.size(72.dp).offset(y = (-36).dp)) {
+            Surface(shape = RoundedCornerShape(16.dp), color = LocalSkin.current.surface, shadowElevation = 2.dp, modifier = Modifier.size(72.dp).offset(y = (-36).dp)) {
                 Box(contentAlignment = Alignment.Center) { DotsAvatar(big = 22.dp, small = 14.dp, gap = 8.dp) }
             }
             Column(Modifier.offset(y = (-24).dp)) {
-                Text("辰", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = C.Ink)
-                Text("心情：" + mood.ifBlank { if (alive) "在线" else "不在" }, fontSize = 14.sp, color = C.Grey, modifier = Modifier.padding(top = 6.dp))
-                if (sig.isNotBlank()) Text(sig, fontSize = 13.sp, color = C.Grey, fontStyle = FontStyle.Italic)
+                Text("辰", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink)
+                Text("心情：" + mood.ifBlank { if (alive) "在线" else "不在" }, fontSize = 14.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(top = 6.dp))
+                if (sig.isNotBlank()) Text(sig, fontSize = 13.sp, color = LocalSkin.current.muted, fontStyle = FontStyle.Italic)
                 Spacer(Modifier.height(14.dp))
-                OutlinedButton(onClick = { Toast.makeText(ctx, "朋友圈在主页那格", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("朋友圈 ›", color = C.Ink) }
-                OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = C.Ink) }
+                OutlinedButton(onClick = { Toast.makeText(ctx, "朋友圈在主页那格", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("朋友圈 ›", color = LocalSkin.current.ink) }
+                OutlinedButton(onClick = onHistory, modifier = Modifier.fillMaxWidth()) { Text("历史心情签名 ›", color = LocalSkin.current.ink) }
                 Spacer(Modifier.height(6.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Button(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("发消息") }

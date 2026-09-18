@@ -28,7 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -58,12 +58,12 @@ fun DotsAvatar(big: Dp = 14.dp, small: Dp = 9.dp, gap: Dp = 6.dp, online: Boolea
 
 /** 主页/百宝箱那种：白卡 + 彩色圆角图标 + 标题 */
 @Composable
-fun IconCard(title: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun IconCard(title: String, icon: Int, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
     // 0.57 走皮肤：面由 Skin 决定（新拟态=凸 纸面=白卡细线 玻璃=半透），按下去的样子也由皮肤定
     Box(modifier.pressable(16.dp, onClick = onClick)) {
         Column(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(Modifier.size(44.dp).clip(RoundedCornerShape(12.dp)).background(tint), contentAlignment = Alignment.Center) {
-                Icon(icon, contentDescription = title, tint = Color.White)
+                Icon(painterResource(icon), contentDescription = title, tint = Color.White, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.height(10.dp))
             Text(title, fontSize = 14.sp, color = LocalSkin.current.ink)
