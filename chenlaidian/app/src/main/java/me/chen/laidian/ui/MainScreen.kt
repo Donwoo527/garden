@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Button
 import me.chen.laidian.R
 import androidx.compose.material3.Icon
@@ -81,6 +83,9 @@ private val TABS = listOf(
     Tab("设置", me.chen.laidian.R.drawable.ic_settings),
 )
 
+/** 0.85 她："朋友圈可以不要最底下那个凸起"——带 ← 的子页（朋友圈/收藏）不显示 dock：dock 是选页的，子页里选不了 */
+object SubPage { var open by mutableStateOf(false) }
+
 @Composable
 fun MainScreen() {
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -92,7 +97,7 @@ fun MainScreen() {
     val skin = LocalSkin.current
     Scaffold(containerColor = skin.bg, bottomBar = {
         // 0.28 新拟物dock（她圈的参考图样式）：悬浮胶囊外框 五tab 当前页=凹陷(她的凹凸语言:选中=按下去的状态)
-        Box(Modifier.fillMaxWidth().background(skin.bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
+        if (!SubPage.open) Box(Modifier.fillMaxWidth().background(skin.bg).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
             Row(
                 Modifier.fillMaxWidth().height(66.dp).raised(corner = 33.dp),   // 0915 她：图标 24 后坑顶格 整体放高
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -198,6 +203,9 @@ private fun ToolsScreen() {
 @Composable
 private fun SettingsScreen() {
     var showFavs by remember { mutableStateOf(false) }
+    LaunchedEffect(showFavs) { SubPage.open = showFavs }
+    DisposableEffect(Unit) { onDispose { SubPage.open = false } }
+    if (showFavs) BackHandler { showFavs = false }
     if (showFavs) { FavoritesScreen(onBack = { showFavs = false }); return }
     SettingsMain(onFavorites = { showFavs = true })
 }

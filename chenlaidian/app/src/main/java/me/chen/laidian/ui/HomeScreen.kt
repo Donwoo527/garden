@@ -41,7 +41,9 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import me.chen.laidian.R
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -79,6 +81,9 @@ import java.util.Locale
 @Composable
 fun HomeScreen(onCall: () -> Unit) {
     var sub by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(sub) { SubPage.open = sub != null }
+    DisposableEffect(Unit) { onDispose { SubPage.open = false } }
+    if (sub != null) BackHandler { sub = null }   // 底栏藏了以后 系统返回手势不能再是"退出app"
     when (sub) {
         "moments" -> MomentsScreen(onBack = { sub = null })
         else -> HomeMain(onCall, onOpen = { sub = it })
@@ -238,8 +243,8 @@ fun MomentsScreen(onBack: () -> Unit) {
             item {
                 WhiteCard(Modifier.padding(12.dp)) {
                     Column(Modifier.padding(12.dp)) {
-                        // 输入区=凹（她的凹凸规范）跟聊天页输入栏同一套
-                        Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).sunken(16.dp).padding(horizontal = 14.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
+                        // 输入区=凹（她的凹凸规范）；0.85 她：发帖框是圆角矩形（角小 边直）评论框才是胶囊 两个都别太粗
+                        Box(Modifier.fillMaxWidth().heightIn(min = 44.dp).sunken(10.dp).padding(horizontal = 14.dp, vertical = 11.dp), contentAlignment = Alignment.CenterStart) {
                             BasicTextField(
                                 value = draft, onValueChange = { draft = it }, maxLines = 4,
                                 cursorBrush = SolidColor(skin.ink),
@@ -302,7 +307,8 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
             }
             m.comments.forEach { c -> Text("${if (c.who == "chen") "辰" else "小陈"}：${c.text}", fontSize = 13.sp, color = skin.ink, lineHeight = 19.sp, modifier = Modifier.padding(start = 4.dp, top = 2.dp)) }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                Box(Modifier.weight(1f).heightIn(min = 38.dp).sunken(19.dp).padding(horizontal = 14.dp, vertical = 9.dp), contentAlignment = Alignment.CenterStart) {
+                // 0.85 她：胶囊 不用那么粗——34 高
+                Box(Modifier.weight(1f).heightIn(min = 34.dp).sunken(17.dp).padding(horizontal = 12.dp, vertical = 7.dp), contentAlignment = Alignment.CenterStart) {
                     BasicTextField(
                         value = comment, onValueChange = { comment = it }, singleLine = true,
                         cursorBrush = SolidColor(skin.ink),
@@ -313,7 +319,7 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
                 }
                 val canSend = comment.isNotBlank()
                 Box(
-                    Modifier.padding(start = 6.dp).size(38.dp).clickable(enabled = canSend) {
+                    Modifier.padding(start = 6.dp).size(34.dp).clickable(enabled = canSend) {
                         val t = comment.trim(); comment = ""
                         scope.launch { withContext(Dispatchers.IO) { ChatApi.commentMoment(ctx, m.id, t) } }
                     },
