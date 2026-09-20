@@ -151,6 +151,7 @@ fun JetConversation(onCall: () -> Unit) {
     var replyTo by remember { mutableStateOf<Msg?>(null) }
     var forwardText by remember { mutableStateOf<String?>(null) }   // 0.36 转发:原文进输入框
     var collapseTick by remember { mutableIntStateOf(0) }   // 0920 她：点消息区任何地方收起表情/加号面板 每加一收一次
+    var panelOpen by remember { mutableStateOf(false) }   // 0920 面板开着时点气泡只收面板 不弹表态条
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var showCard by remember { mutableStateOf(false) }
@@ -284,6 +285,7 @@ fun JetConversation(onCall: () -> Unit) {
                 OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, placeholder = { Text("搜聊天记录") },
                     shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
             }
+            androidx.compose.runtime.CompositionLocalProvider(LocalPanelOpen provides panelOpen) {
             Messages(shown, msgs, readIds, loader, scrollState, Modifier.weight(1f), unseen = unseen,
                 onAnyTap = { collapseTick++ },
                 onOpenImage = { viewerUrl = it },
@@ -293,6 +295,7 @@ fun JetConversation(onCall: () -> Unit) {
                 onForwardImage = { u -> forceBottom = true; scope.launch { ChatApi.lastError = null; val ok = withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(u), "") }; if (!ok) forceBottom = false; Toast.makeText(ctx, if (ok) "已转发" else "转发失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show() } },
                 onFav = { m -> scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, m) }; Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show() } },
                 onCopy = { m -> (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.text)); Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show() })
+            }
             if (sending) Text("图片上传中…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
             if (status == "thinking") Text("辰在想…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
             replyTo?.let { q ->
@@ -305,6 +308,7 @@ fun JetConversation(onCall: () -> Unit) {
                 insertText = forwardText,
                 onInsertConsumed = { forwardText = null },
                 collapseTick = collapseTick,
+                onPanelOpen = { panelOpen = it },
                 onSendSticker = { url -> forceBottom = true; scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(url), "") }; if (!ok) forceBottom = false } },
                 onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) { replyTo = null; forceBottom = true } else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
                 onTyping = { ChatClient.typing(it) },
@@ -621,6 +625,8 @@ private val MeBubbleShape = RoundedCornerShape(20.dp)
 private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
+    var reactBar by remember { mutableStateOf(false) }
+    val panelOpen = LocalPanelOpen.current   // 0920 她：轻点气泡弹一排表态（TG 那种）
     var transcript by remember { mutableStateOf(false) }
     var translated by remember(m.id) { mutableStateOf<String?>(null) }   // 0915 长按→翻译 译文贴在气泡里正文下面
     // 0915 她的图：辰浅蓝在左 她浅橘在右 字都是深色；颜色归皮肤管
@@ -652,7 +658,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                         if (new != offsetX.value) { change.consume(); dragScope.launch { offsetX.snapTo(new) } }
                     }
                 }
-                .combinedClickable(onClick = {}, onLongClick = { menu = true })) {
+                .combinedClickable(onClick = { if (!panelOpen) reactBar = true }, onLongClick = { menu = true })) {   // 0920 轻点=表态条（语音/文件气泡和文字留白区走这里）
                 Column(Modifier.padding(if (m.msgType == "voice") 6.dp else 0.dp)) {
                     quoted?.let { q ->
                         // 0915 她的图：引用框 = 左竖条(强调色) + 名字 + 右上引号 + 折叠箭头；收起一行 展开四行；回复正文在下面（tg 那种）
@@ -757,7 +763,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                                 }
                             }
                         }
-                        m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg, onLongPress = { menu = true })   // 0920 她：文字长按开菜单（原因见 ClickableMessage）
+                        m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg, onLongPress = { menu = true }, onTap = { if (!panelOpen) reactBar = true })   // 0920 她：文字长按开菜单 轻点（没点到链接）弹表态条
                         else -> {}
                     }
                     translated?.let { t ->
@@ -766,7 +772,12 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                     }
                 }
             }
+            // 0920 她：轻点弹出的表态条；长按菜单顶上也放同一排（TG 同款）
+            DropdownMenu(expanded = reactBar, onDismissRequest = { reactBar = false }) {
+                ReactionRow { e -> reactBar = false; ChatClient.react(m.id, e) }
+            }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                ReactionRow { e -> menu = false; ChatClient.react(m.id, e) }
                 DropdownMenuItem(text = { Text("复制") }, onClick = { menu = false; onCopy(m) })
                 DropdownMenuItem(text = { Text("引用") }, onClick = { menu = false; onQuote(m) })
                 DropdownMenuItem(text = { Text("收藏") }, onClick = { menu = false; onFav(m) })
@@ -791,8 +802,9 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                     val ok = withContext(Dispatchers.IO) { ChatApi.addSticker(ctx, u) }
                     Toast.makeText(ctx, if (ok) "存进表情库了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
                 }
-            }, onFav = { onFav(m) }, onForward = onForwardImage)
+            }, onFav = { onFav(m) }, onForward = onForwardImage, onReact = { e -> ChatClient.react(m.id, e) })
         }
+        ReactionChips(m.reactions) { e -> ChatClient.react(m.id, e) }   // 0920 气泡下的表态胶囊；Column 已按 isUserMe 左右对齐 跟着气泡那一侧
     }
 }
 
@@ -818,13 +830,14 @@ private fun VoiceBars(seed: String, progress: Float, color: Color, modifier: Mod
 }
 
 @Composable
-private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color, onLongPress: () -> Unit) {
+private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color, onLongPress: () -> Unit, onTap: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     val styled = messageFormatter(text = text, primary = false)   // 0915 两边气泡都是浅底深字 链接统一用强调色
     // 0920 她："文字长按没反应"——ClickableText 内部 detectTapGestures 会把按下吃掉 外层 Surface 的 combinedClickable 永远等不到没被消费的 down
     // 换普通 Text 自己接手势：长按直接开菜单 点链接照旧；padding 留在 pointerInput 外面 点在留白上的落到外层 combinedClickable 同样开菜单
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val longPress by rememberUpdatedState(onLongPress)
+    val tap by rememberUpdatedState(onTap)
     Text(
         text = styled,
         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 18.sp, color = color),   // 0915 她：行距 1.43→1.25
@@ -833,11 +846,9 @@ private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color, onLo
                 detectTapGestures(
                     onLongPress = { longPress() },
                     onTap = { pos ->
-                        layout?.getOffsetForPosition(pos)?.let { off ->
-                            styled.getStringAnnotations(start = off, end = off).firstOrNull()?.let { a ->
-                                if (a.tag == SymbolAnnotationType.LINK.name) uriHandler.openUri(a.item)
-                            }
-                        }
+                        // 0920 点到链接就开链接 没点到链接 = 轻点气泡 → 表态条
+                        val link = layout?.getOffsetForPosition(pos)?.let { off -> styled.getStringAnnotations(start = off, end = off).firstOrNull { it.tag == SymbolAnnotationType.LINK.name } }
+                        if (link != null) uriHandler.openUri(link.item) else tap()
                     },
                 )
             },

@@ -114,6 +114,8 @@ object ChatClient {
             "thinking" -> pendingThinking.value = o.optString("text", "").takeIf { it.isNotBlank() }
             "status" -> status.value = o.optString("state", "idle")
             "read" -> o.optJSONArray("ids")?.let { a -> readIds.value = readIds.value + (0 until a.length()).map { i -> a.optString(i) } }
+            // 0920 表态广播：全量替换那条的 reactions（空对象 = 全取消了）
+            "reaction" -> { val id = o.optString("id"); val r = Msg.parseReactions(o.optJSONObject("reactions")); messages.value = messages.value.map { if (it.id == id) it.copy(reactions = r) else it } }
             "session_status" -> sessionAlive.value = o.optBoolean("alive", false)
             "profile" -> {
                 o.optString("mood", "").takeIf { it.isNotBlank() }?.let { mood.value = it }
@@ -158,6 +160,11 @@ object ChatClient {
         if (state == typingState) return
         typingState = state
         ws?.send(JSONObject().put("type", "typing").put("state", state).toString())
+    }
+
+    /** 0920 表态：同一个人对同一 emoji 再发一次 = 取消（切换语义服务端做） 结果等 "reaction" 广播 */
+    fun react(id: String, emoji: String) {
+        ws?.send(JSONObject().put("type", "react").put("id", id).put("emoji", emoji).toString())
     }
 
     fun poke() {

@@ -23,6 +23,7 @@ data class Msg(
     val duration: Double? = null,   // 0915 语音时长（秒），服务端 ffprobe 算的；老消息没有
     val quoteWho: String? = null,   // 0920 服务端带的引用快照 quote{id,who,text}：reply_to 那条不在本地列表时靠它画引用框；老消息没有
     val quoteText: String? = null,
+    val reactions: Map<String, List<String>> = emptyMap(),   // 0920 她：气泡表态 emoji→点过的人(chen/xiaochen)；老消息没有
 ) {
     val isChen get() = who == "chen"
 
@@ -38,6 +39,14 @@ data class Msg(
     companion object {
         private fun JSONObject.str(key: String): String? =
             optString(key, "").takeIf { it.isNotBlank() && it != "null" }
+
+        /** 0920 表态 {"❤": ["chen"], "👍": ["xiaochen","chen"]} → Map；没有/不是对象 → 空；没人点的 emoji 丢掉 */
+        fun parseReactions(o: JSONObject?): Map<String, List<String>> {
+            if (o == null) return emptyMap()
+            return o.keys().asSequence()
+                .associateWith { k -> o.optJSONArray(k)?.let { a -> (0 until a.length()).mapNotNull { i -> a.optString(i).takeIf { it.isNotBlank() } } } ?: emptyList() }
+                .filterValues { it.isNotEmpty() }
+        }
 
         fun from(o: JSONObject): Msg {
             var type = if (o.has("msg_type")) o.optString("msg_type", "text") else o.optString("type", "text")
@@ -58,6 +67,7 @@ data class Msg(
                 duration = if (o.has("duration") && !o.isNull("duration")) o.optDouble("duration").takeIf { it > 0 } else null,
                 quoteWho = quote?.str("who"),
                 quoteText = quote?.optString("text", ""),
+                reactions = parseReactions(o.optJSONObject("reactions")),
             )
         }
 

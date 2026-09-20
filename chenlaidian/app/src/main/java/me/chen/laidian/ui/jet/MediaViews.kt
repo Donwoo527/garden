@@ -83,7 +83,7 @@ private val THUMB = 80.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) -> Unit, onSticker: (String) -> Unit, onFav: () -> Unit, onForward: (String) -> Unit) {
+fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) -> Unit, onSticker: (String) -> Unit, onFav: () -> Unit, onForward: (String) -> Unit, onReact: (String) -> Unit) {
     if (images.isEmpty()) return
     var top by remember(images) { mutableIntStateOf(0) }    // 叠着时最上面那张
     var menuFor by remember { mutableStateOf<String?>(null) }
@@ -96,6 +96,7 @@ fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) ->
             PhotoStack(images, loader, onOpen = { i -> onOpen(images[i]) }, onLongPress = { i -> menuFor = images[i] }, onIndex = { top = it })
         }
         DropdownMenu(expanded = menuFor != null, onDismissRequest = { menuFor = null }) {
+            ReactionRow { e -> onReact(e); menuFor = null }   // 0920 她：图片消息靠长按菜单顶上这排表态（图点一下是看大图）
             DropdownMenuItem(text = { Text("存为表情") }, onClick = { menuFor?.let(onSticker); menuFor = null })
             DropdownMenuItem(text = { Text("收藏") }, onClick = { onFav(); menuFor = null })
             DropdownMenuItem(text = { Text("转发") }, onClick = { menuFor?.let(onForward); menuFor = null })   // 0920 她：这张图原样再发一遍
