@@ -10,6 +10,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.background
@@ -41,7 +43,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -77,16 +78,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.LastBaseline
@@ -96,6 +101,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -144,6 +150,7 @@ fun JetConversation(onCall: () -> Unit) {
     val readIds by ChatClient.readIds.collectAsState()
     var replyTo by remember { mutableStateOf<Msg?>(null) }
     var forwardText by remember { mutableStateOf<String?>(null) }   // 0.36 转发:原文进输入框
+    var collapseTick by remember { mutableIntStateOf(0) }   // 0920 她：点消息区任何地方收起表情/加号面板 每加一收一次
     var query by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
     var showCard by remember { mutableStateOf(false) }
@@ -157,8 +164,26 @@ fun JetConversation(onCall: () -> Unit) {
     val scope = rememberCoroutineScope()
     val loader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
     val shown = remember(msgs, query) { (if (query.isBlank()) msgs else msgs.filter { it.text.contains(query, true) }).asReversed() }
+    // 0920 她："每次发新消息不能自动定位到底部"——原来只看一眼 firstVisibleItemIndex<=1 就 scrollToItem 一次：新条目量完高位置会漂、她自己发的也可能被判成不在底部
+    // 现在：atBottom 持续算（index 0 且离底不到 120dp）；forceBottom 由她的发送动作点亮；她发的(who=xiaochen)一律到底；滚两次（等一帧再补一次）防漂；她在翻旧消息时不拽 只记 unseen 给"回到底部"按钮显示条数
+    val bottomSlack = with(LocalDensity.current) { 120.dp.toPx() }
+    val atBottom by remember(bottomSlack) { derivedStateOf { scrollState.firstVisibleItemIndex == 0 && scrollState.firstVisibleItemScrollOffset < bottomSlack } }
+    var forceBottom by remember { mutableStateOf(false) }
+    var unseen by remember { mutableIntStateOf(0) }
     val lastId = msgs.lastOrNull()?.id
-    LaunchedEffect(lastId) { if (scrollState.firstVisibleItemIndex <= 1) scrollState.scrollToItem(0) }
+    LaunchedEffect(lastId) {
+        val newest = msgs.lastOrNull()
+        // effect 跑在布局前：这里读到的 atBottom 是新条目插进来之前的位置；万一落在布局后（新条目已占 index 0）原来贴底那条会变成 index 1——旧代码的 <=1 就是防这个 保留这层容错
+        val nearBottom = atBottom || (scrollState.firstVisibleItemIndex <= 1 && scrollState.firstVisibleItemScrollOffset < bottomSlack)
+        if (forceBottom || nearBottom || newest?.who == "xiaochen") {
+            scrollState.scrollToItem(0)
+            withFrameNanos {}
+            scrollState.scrollToItem(0)
+            unseen = 0
+        } else if (newest != null && newest.msgType != "thinking") unseen++   // 思考行不算新消息
+        forceBottom = false
+    }
+    LaunchedEffect(atBottom) { if (atBottom) unseen = 0 }
     val nearTop by remember { derivedStateOf { val info = scrollState.layoutInfo; info.totalItemsCount > 0 && (info.visibleItemsInfo.lastOrNull()?.index ?: -1) >= info.totalItemsCount - 3 } }
     // 0916 她："翻到顶就不动了"：一页折叠的思考行太矮 加载完视口仍在顶 nearTop 不变就不再触发——加上 msgs.size 每来一页重判 直到填满或没有更多
     LaunchedEffect(nearTop, msgs.size) { if (nearTop && query.isBlank()) ChatClient.loadMore() }
@@ -179,6 +204,7 @@ fun JetConversation(onCall: () -> Unit) {
     }
     fun sendPicked(uris: List<android.net.Uri>, original: Boolean) {
         sending = true
+        forceBottom = true   // 0920 她发的到了就滚到底：先点亮 失败再灭（ws 回显可能比 HTTP 应答先到）
         scope.launch {
             ChatApi.lastError = null
             val urls = withContext(Dispatchers.IO) {
@@ -192,7 +218,7 @@ fun JetConversation(onCall: () -> Unit) {
             }
             val ok = urls.isNotEmpty() && withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, urls, "") }
             sending = false
-            if (!ok) Toast.makeText(ctx, "图片发送失败：" + (ChatApi.lastError ?: if (urls.isEmpty()) "读图/压缩失败" else "发送被拒"), Toast.LENGTH_LONG).show()
+            if (!ok) { forceBottom = false; Toast.makeText(ctx, "图片发送失败：" + (ChatApi.lastError ?: if (urls.isEmpty()) "读图/压缩失败" else "发送被拒"), Toast.LENGTH_LONG).show() }
             // 0915 教训：兜底路径不能静默——走了"原样上传"就得说出来，不然根因被盖住（这次盖了一整天）
             else if (!original && ChatApi.lastError != null) Toast.makeText(ctx, "发了 但压缩没走通（${ChatApi.lastError}）发的是原图", Toast.LENGTH_LONG).show()
         }
@@ -201,6 +227,7 @@ fun JetConversation(onCall: () -> Unit) {
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         sending = true
+        forceBottom = true   // 0920 同上
         scope.launch {
             ChatApi.lastError = null
             val ok = withContext(Dispatchers.IO) {
@@ -211,7 +238,7 @@ fun JetConversation(onCall: () -> Unit) {
                 bytes != null && ChatApi.uploadBytes(ctx, bytes, name, mime, silent = false) != null
             }
             sending = false
-            if (!ok) Toast.makeText(ctx, "文件发送失败：" + (ChatApi.lastError ?: "读不到文件"), Toast.LENGTH_LONG).show()
+            if (!ok) { forceBottom = false; Toast.makeText(ctx, "文件发送失败：" + (ChatApi.lastError ?: "读不到文件"), Toast.LENGTH_LONG).show() }
         }
     }
     // 0915 拍照全尺寸：相机把原图写进 cache/camera/ 再走和相册一样的压缩上传（0.62 用的预览图只有 144×192）
@@ -220,13 +247,14 @@ fun JetConversation(onCall: () -> Unit) {
         val u = cameraUri
         if (!ok0 || u == null) return@rememberLauncherForActivityResult
         sending = true
+        forceBottom = true   // 0920 同上
         scope.launch {
             ChatApi.lastError = null
             val ok = withContext(Dispatchers.IO) {
                 ImageUtil.compressOrRawUpload(ctx, u)?.let { ChatApi.sendImages(ctx, listOf(it), "") } ?: false
             }
             sending = false
-            if (!ok) Toast.makeText(ctx, "拍照发送失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_LONG).show()
+            if (!ok) { forceBottom = false; Toast.makeText(ctx, "拍照发送失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_LONG).show() }
         }
     }
     fun takePhoto() {
@@ -256,10 +284,13 @@ fun JetConversation(onCall: () -> Unit) {
                 OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, placeholder = { Text("搜聊天记录") },
                     shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
             }
-            Messages(shown, msgs, readIds, loader, scrollState, Modifier.weight(1f),
+            Messages(shown, msgs, readIds, loader, scrollState, Modifier.weight(1f), unseen = unseen,
+                onAnyTap = { collapseTick++ },
                 onOpenImage = { viewerUrl = it },
                 onQuote = { replyTo = it },
                 onForward = { forwardText = it.text },
+                // 0920 她：图长按→转发 = 这张图原样再发一条（和发表情包同一条路）
+                onForwardImage = { u -> forceBottom = true; scope.launch { ChatApi.lastError = null; val ok = withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(u), "") }; if (!ok) forceBottom = false; Toast.makeText(ctx, if (ok) "已转发" else "转发失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show() } },
                 onFav = { m -> scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, m) }; Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show() } },
                 onCopy = { m -> (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.text)); Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show() })
             if (sending) Text("图片上传中…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
@@ -273,8 +304,9 @@ fun JetConversation(onCall: () -> Unit) {
             JetUserInput(
                 insertText = forwardText,
                 onInsertConsumed = { forwardText = null },
-                onSendSticker = { url -> scope.launch { withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(url), "") } } },
-                onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) replyTo = null else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
+                collapseTick = collapseTick,
+                onSendSticker = { url -> forceBottom = true; scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(url), "") }; if (!ok) forceBottom = false } },
+                onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) { replyTo = null; forceBottom = true } else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
                 onTyping = { ChatClient.typing(it) },
                 onPickImages = { pickImages() },
                 onPickFile = { filePicker.launch(arrayOf("*/*")) },
@@ -370,10 +402,31 @@ private fun Msg.dayLabel(): String {
 }
 
 @Composable
-private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, loader: ImageLoader, scrollState: LazyListState, modifier: Modifier,
-                     onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, loader: ImageLoader, scrollState: LazyListState, modifier: Modifier, unseen: Int,
+                     onAnyTap: () -> Unit, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val scope = rememberCoroutineScope()
-    Box(modifier) {
+    val tap by rememberUpdatedState(onAnyTap)
+    // 0920 她：点消息区任何地方（气泡/空白都算）收起表情/加号面板。走 Initial 通道只看不消费：按下→抬起、位移没过 touchSlop、不是长按、单指 才算一次点；
+    // 列表滚动（有位移）、气泡长按菜单、左滑引用、图片点开 全都照旧不受影响
+    Box(modifier.pointerInput(Unit) {
+        val slop = viewConfiguration.touchSlop
+        val longPress = viewConfiguration.longPressTimeoutMillis
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            var moved = false
+            var multi = false
+            while (true) {
+                val ev = awaitPointerEvent(PointerEventPass.Initial)
+                if (ev.changes.size > 1) multi = true
+                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                if ((ch.position - down.position).getDistance() > slop) moved = true
+                if (!ch.pressed) {
+                    if (!moved && !multi && ch.uptimeMillis - down.uptimeMillis < longPress) tap()
+                    break
+                }
+            }
+        }
+    }) {
         LazyColumn(reverseLayout = true, state = scrollState, modifier = Modifier.fillMaxSize()) {
             for (index in messages.indices) {
                 val m = messages[index]
@@ -384,9 +437,11 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 // 0915 她：同一个人同一分钟连发的 只在最后一条下面标时间
                 val showTime = newer == null || newer.who != m.who || newer.timeLabel() != m.timeLabel()
                 item(key = m.id) {
+                    // 0920 服务端给带 reply_to 的消息附了引用快照 quote{id,who,text}：被引用那条不在本地列表里（老消息/没翻到）就用快照拼一条只够引用框渲染的 Msg 兜底（引用框只读 id/isChen/text/msgType）
+                    val quoted = all.firstOrNull { it.id == m.replyTo } ?: m.quoteText?.let { Msg(id = m.replyTo ?: "", who = m.quoteWho ?: "chen", msgType = "text", text = it, media = null, voice = null, replyTo = null, thinking = null, ts = 0.0) }
                     if (m.who == "system") SystemPill(m.text)
-                    else MessageRow(m, all.firstOrNull { it.id == m.replyTo }, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor, showTime = showTime,
-                        read = m.id in readIds, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onFav = onFav, onCopy = onCopy)
+                    else MessageRow(m, quoted, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor, showTime = showTime,
+                        read = m.id in readIds, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onForwardImage = onForwardImage, onFav = onFav, onCopy = onCopy)
                 }
                 val day = m.dayLabel()
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
@@ -401,7 +456,7 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
         }
         val jumpThreshold = with(LocalDensity.current) { 56.dp.toPx() }
         val jumpEnabled by remember { derivedStateOf { scrollState.firstVisibleItemIndex != 0 || scrollState.firstVisibleItemScrollOffset > jumpThreshold } }
-        JumpToBottom(enabled = jumpEnabled, onClicked = { scope.launch { scrollState.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomCenter))
+        JumpToBottom(enabled = jumpEnabled, unseen = unseen, onClicked = { scope.launch { scrollState.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 
@@ -417,7 +472,7 @@ private fun SystemPill(text: String) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, showTime: Boolean, read: Boolean,
-                       loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+                       loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
@@ -438,7 +493,7 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
         Column(Modifier.weight(1f, fill = false).padding(if (isUserMe) 0.dp else 0.dp), horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
             // 0.20 按她设计稿：不显示昵称行(头像已区分人)，时间挪到气泡下方小字
             if (!isUserMe && !m.thinking.isNullOrBlank()) ThinkingFold(m.thinking)
-            ChatItemBubble(m, quoted, isUserMe, loader, onOpenImage, onQuote, onForward, onFav, onCopy)
+            ChatItemBubble(m, quoted, isUserMe, loader, onOpenImage, onQuote, onForward, onForwardImage, onFav, onCopy)
             if (showTime) TimeUnder(m.timeLabel(), isUserMe, read)
             Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 3.dp))
         }
@@ -563,7 +618,7 @@ private val MeBubbleShape = RoundedCornerShape(20.dp)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
+private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
     var transcript by remember { mutableStateOf(false) }
@@ -702,7 +757,7 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
                                 }
                             }
                         }
-                        m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg)
+                        m.text.isNotBlank() -> ClickableMessage(m.text, isUserMe, fg, onLongPress = { menu = true })   // 0920 她：文字长按开菜单（原因见 ClickableMessage）
                         else -> {}
                     }
                     translated?.let { t ->
@@ -730,13 +785,13 @@ private fun ChatItemBubble(m: Msg, quoted: Msg?, isUserMe: Boolean, loader: Imag
         val imgs = if (m.msgType == "images") m.images else if (m.msgType == "image" && m.media != null) listOf(m.media) else emptyList()
         if (imgs.isNotEmpty()) {
             Spacer(Modifier.height(4.dp))
-            // 0915 她：图不套气泡、缩到 80、点开全屏能翻能存、连发的叠一摞（MediaViews.kt）；长按→存为表情/收藏
+            // 0915 她：图不套气泡、缩到 80、点开全屏能翻能存、连发的叠一摞（MediaViews.kt）；长按→存为表情/收藏/转发(0920)
             MessageImages(imgs, loader, onOpen = onOpenImage, onSticker = { u ->
                 dragScope.launch {
                     val ok = withContext(Dispatchers.IO) { ChatApi.addSticker(ctx, u) }
                     Toast.makeText(ctx, if (ok) "存进表情库了" else "没存上：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
                 }
-            }, onFav = { onFav(m) })
+            }, onFav = { onFav(m) }, onForward = onForwardImage)
         }
     }
 }
@@ -763,18 +818,30 @@ private fun VoiceBars(seed: String, progress: Float, color: Color, modifier: Mod
 }
 
 @Composable
-private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color) {
+private fun ClickableMessage(text: String, isUserMe: Boolean, color: Color, onLongPress: () -> Unit) {
     val uriHandler = LocalUriHandler.current
     val styled = messageFormatter(text = text, primary = false)   // 0915 两边气泡都是浅底深字 链接统一用强调色
-    ClickableText(
+    // 0920 她："文字长按没反应"——ClickableText 内部 detectTapGestures 会把按下吃掉 外层 Surface 的 combinedClickable 永远等不到没被消费的 down
+    // 换普通 Text 自己接手势：长按直接开菜单 点链接照旧；padding 留在 pointerInput 外面 点在留白上的落到外层 combinedClickable 同样开菜单
+    var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val longPress by rememberUpdatedState(onLongPress)
+    Text(
         text = styled,
         style = MaterialTheme.typography.bodyLarge.copy(fontSize = 14.sp, lineHeight = 18.sp, color = color),   // 0915 她：行距 1.43→1.25
-        modifier = Modifier.padding(horizontal = 11.dp, vertical = 10.dp),   // 0915 她：左右−1 上下−2
-        onClick = { off ->
-            styled.getStringAnnotations(start = off, end = off).firstOrNull()?.let { a ->
-                if (a.tag == SymbolAnnotationType.LINK.name) uriHandler.openUri(a.item)
-            }
-        },
+        modifier = Modifier.padding(horizontal = 11.dp, vertical = 10.dp)   // 0915 她：左右−1 上下−2
+            .pointerInput(styled) {
+                detectTapGestures(
+                    onLongPress = { longPress() },
+                    onTap = { pos ->
+                        layout?.getOffsetForPosition(pos)?.let { off ->
+                            styled.getStringAnnotations(start = off, end = off).firstOrNull()?.let { a ->
+                                if (a.tag == SymbolAnnotationType.LINK.name) uriHandler.openUri(a.item)
+                            }
+                        }
+                    },
+                )
+            },
+        onTextLayout = { layout = it },
     )
 }
 
@@ -788,11 +855,11 @@ private fun DayHeader(dayString: String) {
 }
 
 @Composable
-private fun JumpToBottom(enabled: Boolean, onClicked: () -> Unit, modifier: Modifier = Modifier) {
+private fun JumpToBottom(enabled: Boolean, unseen: Int = 0, onClicked: () -> Unit, modifier: Modifier = Modifier) {
     if (!enabled) return
     ExtendedFloatingActionButton(
         icon = { Icon(painterResource(R.drawable.ic_arrow_downward), contentDescription = null, modifier = Modifier.height(18.dp)) },
-        text = { Text("回到底部") },
+        text = { Text(if (unseen > 0) "$unseen 条新消息" else "回到底部") },   // 0920 她翻旧消息时 新到的条数
         onClick = onClicked,
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.primary,

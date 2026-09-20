@@ -77,7 +77,7 @@ class CallActivity : AppCompatActivity() {
         ChenService.speakerOn.observe(this) { speaker.text = if (it) "免提：开" else "免提：关" }
         ChenService.callState.observe(this) {
             if (it == "已挂断") { stopRinging(); beepEnd(); finish() }
-            else if (it == "通话中") { stopRinging(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }
+            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
         }
         // 0.41 听着呢/翻译中这类状态显示在"通话中"下面 不再刷进字幕区
         ChenService.sttStatus.observe(this) { if (ChenService.callState.value == "通话中") state.text = it ?: "" }
@@ -106,6 +106,7 @@ class CallActivity : AppCompatActivity() {
         }
         accept.setOnClickListener {
             stopRinging()
+            clearShowWhenLocked()   // 0916 她反馈：通话中锁屏再亮不该直接弹来电页
             title.text = "接通中…"
             state.text = ""
             acceptWrap.visibility = View.GONE
@@ -119,6 +120,16 @@ class CallActivity : AppCompatActivity() {
     }
 
     private fun svc(action: String) = startService(Intent(this, ChenService::class.java).setAction(action))
+
+    /** 0916 她反馈：通话中锁屏再亮不该直接弹来电页。响铃阶段保留锁屏上弹出；接听后清掉锁屏覆盖 锁屏再亮回正常锁屏 要回通话自己解锁点app */
+    private fun clearShowWhenLocked() {
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(false)
+        } else {
+            @Suppress("DEPRECATION")
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+        }
+    }
 
     /** 0.32 挂断提示音（她以为有 现在真有了）：轻双哔 */
     private fun beepEnd() {

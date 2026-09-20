@@ -83,7 +83,7 @@ private val THUMB = 80.dp
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) -> Unit, onSticker: (String) -> Unit, onFav: () -> Unit) {
+fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) -> Unit, onSticker: (String) -> Unit, onFav: () -> Unit, onForward: (String) -> Unit) {
     if (images.isEmpty()) return
     var top by remember(images) { mutableIntStateOf(0) }    // 叠着时最上面那张
     var menuFor by remember { mutableStateOf<String?>(null) }
@@ -98,6 +98,7 @@ fun MessageImages(images: List<String>, loader: ImageLoader, onOpen: (String) ->
         DropdownMenu(expanded = menuFor != null, onDismissRequest = { menuFor = null }) {
             DropdownMenuItem(text = { Text("存为表情") }, onClick = { menuFor?.let(onSticker); menuFor = null })
             DropdownMenuItem(text = { Text("收藏") }, onClick = { onFav(); menuFor = null })
+            DropdownMenuItem(text = { Text("转发") }, onClick = { menuFor?.let(onForward); menuFor = null })   // 0920 她：这张图原样再发一遍
         }
     }
 }

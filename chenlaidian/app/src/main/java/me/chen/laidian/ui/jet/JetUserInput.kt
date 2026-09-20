@@ -101,10 +101,12 @@ fun JetUserInput(
     onTakePhoto: () -> Unit = {},
     onCall: () -> Unit,
     resetScroll: () -> Unit,
+    collapseTick: Int = 0,   // 0920 她：点消息区收起表情/加号面板——外面每加一次 这里收一次
     modifier: Modifier = Modifier,
 ) {
     var selector by rememberSaveable { mutableStateOf(InputSelector.NONE) }
     val dismiss = { selector = InputSelector.NONE }
+    LaunchedEffect(collapseTick) { if (collapseTick > 0) selector = InputSelector.NONE }
     if (selector != InputSelector.NONE) BackHandler(onBack = dismiss)
     var textState by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
     var focused by remember { mutableStateOf(false) }

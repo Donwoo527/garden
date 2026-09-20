@@ -21,6 +21,8 @@ data class Msg(
     val images: List<String> = emptyList(),
     val filename: String? = null,
     val duration: Double? = null,   // 0915 语音时长（秒），服务端 ffprobe 算的；老消息没有
+    val quoteWho: String? = null,   // 0920 服务端带的引用快照 quote{id,who,text}：reply_to 那条不在本地列表时靠它画引用框；老消息没有
+    val quoteText: String? = null,
 ) {
     val isChen get() = who == "chen"
 
@@ -40,6 +42,7 @@ data class Msg(
         fun from(o: JSONObject): Msg {
             var type = if (o.has("msg_type")) o.optString("msg_type", "text") else o.optString("type", "text")
             if (type == "msg" || type.isBlank()) type = "text"
+            val quote = o.optJSONObject("quote")   // 0920 引用快照；老消息没有这个字段
             return Msg(
                 id = o.optString("id", ""),
                 who = o.optString("who", "chen"),
@@ -53,6 +56,8 @@ data class Msg(
                 images = o.optJSONArray("images")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optString(i).takeIf { it.isNotBlank() } } } ?: emptyList(),
                 filename = o.str("filename"),
                 duration = if (o.has("duration") && !o.isNull("duration")) o.optDouble("duration").takeIf { it > 0 } else null,
+                quoteWho = quote?.str("who"),
+                quoteText = quote?.optString("text", ""),
             )
         }
 
