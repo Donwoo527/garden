@@ -144,11 +144,16 @@ object ToyController {
                     g.discoverServices()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     try { g.close() } catch (_: Exception) {}
+                    handler.post { q(isWand).items.clear(); q(isWand).busy = false }
                     if (isWand) { wandGatt = null; wandChar = null; wandConnected.postValue(false); clearWand() }
                     else { suckGatt = null; suckChar = null; suckConnected.postValue(false); clearSuck() }
                     post("$label 断开了")
                     pushStatus()
                 }
+            }
+            override fun onCharacteristicWrite(g: BluetoothGatt, ch: BluetoothGattCharacteristic, status: Int) {
+                // 0.91 安卓一次只能挂一条写操作，写完回调再发下一条，不然连着写后面的全丢
+                handler.post { q(isWand).busy = false; pump(isWand) }
             }
             override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
                 val ch = g.services.flatMap { it.characteristics }.firstOrNull { it.uuid == WRITE_UUID }
@@ -187,16 +192,43 @@ object ToyController {
     private fun heatOn() = b(0x55, 0x05, 0x01, 0x37, 0x00, 0x00, 0x00)
     private fun heatOff() = b(0x55, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00)
 
+    /** 0.91 每个设备一条写队列：安卓 GATT 同时只能有一个写操作在飞，写完回调（或 150ms 超时）再发下一条 */
+    private class WQ { val items = ArrayDeque<ByteArray>(); var busy = false; var since = 0L }
+    private val wq = WQ(); private val sq = WQ()
+    private fun q(isWand: Boolean) = if (isWand) wq else sq
+
     @SuppressLint("MissingPermission")
-    private fun write(g: BluetoothGatt?, ch: BluetoothGattCharacteristic?, bytes: ByteArray) {
-        if (g == null || ch == null) return
-        try {
-            if (Build.VERSION.SDK_INT >= 33) g.writeCharacteristic(ch, bytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+    private fun rawWrite(g: BluetoothGatt?, ch: BluetoothGattCharacteristic?, bytes: ByteArray): Boolean {
+        if (g == null || ch == null) return false
+        return try {
+            if (Build.VERSION.SDK_INT >= 33) g.writeCharacteristic(ch, bytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothGatt.GATT_SUCCESS
             else { ch.value = bytes; g.writeCharacteristic(ch) }
-        } catch (_: Exception) {}
+        } catch (_: Exception) { false }
     }
-    private fun wWand(bytes: ByteArray) = write(wandGatt, wandChar, bytes)
-    private fun wSuck(bytes: ByteArray) = write(suckGatt, suckChar, bytes)
+
+    /** 只在主线程调 */
+    private fun pump(isWand: Boolean) {
+        val qq = q(isWand)
+        if (qq.busy) {
+            if (System.currentTimeMillis() - qq.since < 150) { handler.postDelayed({ pump(isWand) }, 40); return }
+            qq.busy = false   // 回调没来 超时放行
+        }
+        val bytes = qq.items.removeFirstOrNull() ?: return
+        val ok = if (isWand) rawWrite(wandGatt, wandChar, bytes) else rawWrite(suckGatt, suckChar, bytes)
+        if (ok) { qq.busy = true; qq.since = System.currentTimeMillis(); handler.postDelayed({ pump(isWand) }, 160) }
+        else if (qq.items.isNotEmpty()) handler.postDelayed({ pump(isWand) }, 60)
+    }
+
+    private fun enqueue(isWand: Boolean, bytes: ByteArray) {
+        handler.post {
+            val qq = q(isWand)
+            if (qq.items.size > 12) qq.items.removeFirst()   // 别无限堆
+            qq.items.addLast(bytes)
+            pump(isWand)
+        }
+    }
+    private fun wWand(bytes: ByteArray) = enqueue(true, bytes)
+    private fun wSuck(bytes: ByteArray) = enqueue(false, bytes)
 
     private fun active() = cWand > 0 || cSuck > 0 || cStretch > 0 || cPat > 0 || cVibMode > 0
 
