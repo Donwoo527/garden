@@ -39,6 +39,7 @@ import kotlin.math.roundToInt
 
 /**
  * 玩具页（百宝箱→玩具）。0.92 照司沃康的样子：模式是一排排按钮（点亮/再点关），强度是进度条。
+ * 0.93 模式按钮只显数字（"模式7"在 4 列里换行，她 0924 早点的）。
  * 她自己点连接、自己开"允许辰远程"、随时一键停；辰发的每条指令都显示在这。
  */
 @Composable
@@ -128,14 +129,14 @@ fun ToyScreen(onBack: () -> Unit) {
 @Composable
 private fun ModeGrid(label: String, count: Int, selected: Int, onPick: (Int) -> Unit) {
     val skin = LocalSkin.current
-    Text("$label：${if (selected == 0) "关" else "模式$selected"}", fontSize = 13.sp, color = skin.ink)
+    Text("$label：${if (selected == 0) "关" else "$selected"}", fontSize = 13.sp, color = skin.ink)
     Spacer(Modifier.height(4.dp))
     (1..count).chunked(4).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             row.forEach { n ->
                 val on = n == selected
-                if (on) Button(onClick = { onPick(0) }, modifier = Modifier.weight(1f)) { Text("模式$n", fontSize = 12.sp) }
-                else OutlinedButton(onClick = { onPick(n) }, modifier = Modifier.weight(1f)) { Text("模式$n", fontSize = 12.sp) }
+                if (on) Button(onClick = { onPick(0) }, modifier = Modifier.weight(1f)) { Text("$n", fontSize = 12.sp) }
+                else OutlinedButton(onClick = { onPick(n) }, modifier = Modifier.weight(1f)) { Text("$n", fontSize = 12.sp) }
             }
             repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
         }
