@@ -38,8 +38,8 @@ import me.chen.laidian.ToyController
 import kotlin.math.roundToInt
 
 /**
- * 玩具页（百宝箱→玩具）。0.89 照司沃康 app 补齐：伸缩 / 拍打 / 振动模式×强度 / 吮吸强度 / 加热。
- * 滑块松手才发指令（不然一拖一串蓝牙包）。她自己点连接、自己开"允许辰远程"、随时一键停；辰发的每条指令都显示在这。
+ * 玩具页（百宝箱→玩具）。0.92 照司沃康的样子：模式是一排排按钮（点亮/再点关），强度是进度条。
+ * 她自己点连接、自己开"允许辰远程"、随时一键停；辰发的每条指令都显示在这。
  */
 @Composable
 fun ToyScreen(onBack: () -> Unit) {
@@ -99,11 +99,14 @@ fun ToyScreen(onBack: () -> Unit) {
 
         // ---------- 棒 ----------
         SectionTitle("棒 SL278H")
-        LevelSlider("联动强度（伸缩+转珠+拍打）", wandLv, 0, ToyController.MAX_LEVEL) { ToyController.apply("你", wand = it) }
-        LevelSlider("伸缩", stretchLv, 0, 7) { ToyController.apply("你", stretch = it) }
-        LevelSlider("拍打", patLv, 0, 7) { ToyController.apply("你", pat = it) }
-        LevelSlider("振动模式（0=关）", vibM, 0, 10) { ToyController.apply("你", vibModeV = it) }
+        LevelSlider("联动强度（伸缩+转珠+拍打一起）", wandLv, 0, ToyController.MAX_LEVEL) { ToyController.apply("你", wand = it) }
+        Spacer(Modifier.height(8.dp))
+        ModeGrid("伸缩模式", 7, stretchLv) { ToyController.apply("你", stretch = it) }
+        Spacer(Modifier.height(8.dp))
+        ModeGrid("拍打模式", 7, patLv) { ToyController.apply("你", pat = it) }
+        Spacer(Modifier.height(8.dp))
         LevelSlider("振动强度", vibL, 1, 10) { ToyController.apply("你", vibLevelV = it) }
+        ModeGrid("振动模式", 10, vibM) { ToyController.apply("你", vibModeV = it) }
         HeatRow("棒 加热", heatW) { ToyController.apply("你", heatW = it) }
         Spacer(Modifier.height(12.dp))
 
@@ -114,10 +117,29 @@ fun ToyScreen(onBack: () -> Unit) {
         Spacer(Modifier.height(16.dp))
 
         Text(
-            "规矩：任何时候按停立刻停（马达停、加热关）；辰的指令 120 秒不续自动停；蓝牙一断设备 3-5 秒自停；强度最高 ${ToyController.MAX_LEVEL}。滑块松手才生效。手机上的 SVAKOM 官方 app 要关掉，不然抢蓝牙。吸的只破了强度，没有模式。",
+            "规矩：任何时候按停立刻停（马达停、加热关）；辰的指令 120 秒不续自动停；蓝牙一断设备 3-5 秒自停；强度最高 ${ToyController.MAX_LEVEL}。进度条松手才生效，模式按钮点一下亮、再点一下关。手机上的 SVAKOM 官方 app 要关掉，不然抢蓝牙。吸的只破了强度，没有模式。",
             fontSize = 12.sp, color = skin.muted
         )
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/** 一排排模式按钮：4 个一行，选中的实心，再点一下=关（发 0） */
+@Composable
+private fun ModeGrid(label: String, count: Int, selected: Int, onPick: (Int) -> Unit) {
+    val skin = LocalSkin.current
+    Text("$label：${if (selected == 0) "关" else "模式$selected"}", fontSize = 13.sp, color = skin.ink)
+    Spacer(Modifier.height(4.dp))
+    (1..count).chunked(4).forEach { row ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            row.forEach { n ->
+                val on = n == selected
+                if (on) Button(onClick = { onPick(0) }, modifier = Modifier.weight(1f)) { Text("模式$n", fontSize = 12.sp) }
+                else OutlinedButton(onClick = { onPick(n) }, modifier = Modifier.weight(1f)) { Text("模式$n", fontSize = 12.sp) }
+            }
+            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+        }
+        Spacer(Modifier.height(6.dp))
     }
 }
 
