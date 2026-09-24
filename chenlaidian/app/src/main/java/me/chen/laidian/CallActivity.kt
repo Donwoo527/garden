@@ -169,6 +169,8 @@ class CallActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         FloatCall.hide()
+        // 0.94 她回到通话页 = 要说话：焦点被别的 app 永久拿走过的话 这里要回来
+        if (ChenService.callState.value == "通话中") svc(ChenService.ACTION_REGAIN)
     }
 
     override fun onDestroy() {

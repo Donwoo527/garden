@@ -40,6 +40,7 @@ class ChenService : Service() {
         const val ACTION_ACCEPT = "me.chen.laidian.ACCEPT"
         const val ACTION_HANGUP = "me.chen.laidian.HANGUP"
         const val ACTION_SPEAKER = "me.chen.laidian.SPEAKER"
+        const val ACTION_REGAIN = "me.chen.laidian.REGAIN"   // 0.94 回到通话页：把音频焦点要回来
 
         const val CH_SERVICE = "chen_service"
         const val CH_CALL = "chen_call"
@@ -241,6 +242,7 @@ class ChenService : Service() {
                 if (inCall) { audio.setSpeaker(!audio.isSpeaker()); speakerOn.postValue(audio.isSpeaker()) }
                 return START_STICKY
             }
+            ACTION_REGAIN -> { if (inCall) audio.regainFocus(); return START_STICKY }
         }
         running = true
         connect()

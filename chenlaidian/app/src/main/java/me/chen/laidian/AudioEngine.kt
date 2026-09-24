@@ -45,20 +45,66 @@ class AudioEngine(
     // 0.45 音频焦点：真电话/别的app抢走声音时暂停 抢完自动恢复（0911她通话被打断只能重拨的坑）
     @Volatile private var interrupted = false
     private var focusRequest: android.media.AudioFocusRequest? = null
+    // 0.94 永久失焦：小红书/视频这类 app 放带声音的东西 = AUDIOFOCUS_LOSS（不是 TRANSIENT）。
+    // 系统对永久失焦不会再回调 GAIN——以前 interrupted 就一直 true，整通电话聋掉，只能挂了重打
+    // （0924 17:30 她切小红书后说话四十多分钟一句没传上来）。现在：外面没声了自己把焦点要回来。
+    @Volatile private var lostForGood = false
+    private var focusWatch: Thread? = null
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
-            AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                interrupted = true; lostForGood = true
+                try { player?.pause() } catch (_: Exception) {}
+                onState("别的app在出声 我先不听；声音一停我自己接着听")
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 interrupted = true
                 try { player?.pause() } catch (_: Exception) {}
                 onState("被打断了 我等着 回来继续")
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
-                interrupted = false
+                interrupted = false; lostForGood = false
                 try { player?.start() } catch (_: Exception) {}
                 onState("回来了 听着呢")
             }
         }
+    }
+
+    /** 0.94 把焦点要回来（外面没声了 / 她回到通话页）。拿到就接着听；requestAudioFocus 批准时不会再回调 GAIN，所以这里自己复位。 */
+    fun regainFocus(): Boolean {
+        val req = focusRequest ?: return false
+        val r = try { audioManager.requestAudioFocus(req) } catch (_: Exception) { AudioManager.AUDIOFOCUS_REQUEST_FAILED }
+        if (r != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return false
+        val was = interrupted
+        interrupted = false; lostForGood = false
+        if (was) {
+            try { player?.start() } catch (_: Exception) {}
+            onState("回来了 听着呢")
+        }
+        return true
+    }
+
+    /** 0.94 外面有人在用声音就别抢：真电话/响铃（不能把她的真电话录进来）、在放视频音乐、别的 app 也在录（微信语音等）。 */
+    private fun othersBusy(): Boolean {
+        val m = audioManager.mode
+        if (m == AudioManager.MODE_IN_CALL || m == AudioManager.MODE_RINGTONE) return true
+        if (audioManager.isMusicActive) return true
+        if (android.os.Build.VERSION.SDK_INT >= 24 && audioManager.activeRecordingConfigurations.size > 1) return true
+        return false
+    }
+
+    /** 0.94 永久失焦时每秒看一眼：外面连续 2 秒没人用声音 → 要回焦点。别人在用时不抢（不打断她看视频 不录她的真电话）。 */
+    private fun startFocusWatch() {
+        focusWatch = Thread({
+            var quietMs = 0
+            while (capturing) {
+                try { Thread.sleep(1000) } catch (_: InterruptedException) { break }
+                if (!lostForGood || othersBusy()) { quietMs = 0; continue }
+                quietMs += 1000
+                if (quietMs >= 2000) { quietMs = 0; regainFocus() }
+            }
+        }, "chen-focus-watch").apply { isDaemon = true; start() }
     }
     private var captureThread: Thread? = null
     private var player: MediaPlayer? = null
@@ -76,14 +122,17 @@ class AudioEngine(
         focusRequest = android.media.AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(attrs).setOnAudioFocusChangeListener(focusListener).build()
             .also { audioManager.requestAudioFocus(it) }
-        interrupted = false
+        interrupted = false; lostForGood = false
         setSpeaker(false)
         startCapture()
         startPlayer()
+        startFocusWatch()
     }
 
     fun endCall() {
         stopCapture()
+        focusWatch?.interrupt(); focusWatch = null
+        lostForGood = false
         stopPlayer()
         focusRequest?.let { try { audioManager.abandonAudioFocusRequest(it) } catch (_: Exception) {} }
         focusRequest = null
