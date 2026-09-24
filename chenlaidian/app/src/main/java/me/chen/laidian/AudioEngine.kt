@@ -113,6 +113,14 @@ class AudioEngine(
 
     // ---------- 通话开始/结束 ----------
 
+    // 0.95 通话中途插拔/连断耳机：系统不会替我们改 communication device（之前手动定死在听筒）→ 声音还往听筒走
+    // 设备一变就按当前免提状态重新选一次。注册时系统会先把现有设备回调一遍，等于开场再选一次，无害。
+    @Volatile private var calling = false
+    private val deviceCallback = object : android.media.AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) { if (calling) setSpeaker(speaker) }
+        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) { if (calling) setSpeaker(speaker) }
+    }
+
     fun startCall() {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         // 0.45 正式声明"我在通话"：拿语音焦点 别人抢了会通知我们 抢完自动还
@@ -127,9 +135,13 @@ class AudioEngine(
         startCapture()
         startPlayer()
         startFocusWatch()
+        calling = true
+        try { audioManager.registerAudioDeviceCallback(deviceCallback, android.os.Handler(android.os.Looper.getMainLooper())) } catch (_: Exception) {}
     }
 
     fun endCall() {
+        calling = false
+        try { audioManager.unregisterAudioDeviceCallback(deviceCallback) } catch (_: Exception) {}
         stopCapture()
         focusWatch?.interrupt(); focusWatch = null
         lostForGood = false
@@ -151,7 +163,13 @@ class AudioEngine(
             val devices = audioManager.availableCommunicationDevices
             // 0.31 蓝牙耳机优先(她0910地铁实测:耳机麦收不到音才补的)：
             // 非免提且蓝牙耳机在场 → 通话收放全走SCO耳机；免提或无蓝牙 → 原来的扬声器/听筒逻辑
-            val bt = if (!on) devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO } else null
+            // 0.95 耳机优先扩到有线/USB/BLE（她 0925 早上"听筒改成耳机就没声了"）：非免提时有哪种耳机走哪种
+            val headsetTypes = setOf(
+                android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+                android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+                android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+            )
+            val bt = if (!on) devices.firstOrNull { it.type in headsetTypes } else null
             val want = if (on) android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
             val dev = bt ?: devices.firstOrNull { it.type == want }
             if (dev != null) audioManager.setCommunicationDevice(dev) else audioManager.isSpeakerphoneOn = on
