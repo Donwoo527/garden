@@ -297,6 +297,7 @@ class ChenService : Service() {
             "auth" -> {
                 backoffMs = 1000L
                 setStatus("辰在线")
+                ToyController.pushStatus()   // 0.89 重连后把玩具状态报一遍 辰那边不用等下一次变化
                 handler.removeCallbacks(pingRunnable)
                 handler.postDelayed(pingRunnable, 30_000)
             }

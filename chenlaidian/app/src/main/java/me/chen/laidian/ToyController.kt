@@ -23,14 +23,15 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * 0.88 玩具页：把电脑上那套 SVAKOM 蓝牙控制搬进手机，图个方便（她 0924 点的单）。
- * 规矩，四条，都写在页面上：
- *  1. 只有页面里"允许辰远程控制"打开时，才接辰发来的指令；关着就只有她自己能控。
- *  2. 任何时候一键停，立刻写停止指令。
- *  3. 辰发的档位 120 秒没续就自动停；蓝牙一断设备自己 3-5 秒也停。
- *  4. 档位封顶 180（协议手册：180=手麻，255=别碰）。
- * 协议见 memory/tool/svakom/README.md：写特征 ffe1（无响应），scale 55 04 00 00 01 [v] AA，停 55 04 00 00 00 00 AA，
- * 设备 3-5 秒收不到就自停，所以有档位时每 1 秒重发一次。
+ * 玩具页（0.88 起，0.89 照司沃康 app 补齐功能）：手机直接连 SVAKOM 蓝牙，图方便，不用再开电脑。
+ * 规矩，写在页面上：
+ *  1. 只有"允许辰远程控制"打开时才接辰的指令；关着就只有她自己能控。
+ *  2. 任何时候一键停：所有马达停、加热关。
+ *  3. 辰发的档位 120 秒没续自动停；蓝牙一断设备自己 3-5 秒也停。
+ *  4. 强度封顶 180（协议手册：180=手麻，255=别碰）。
+ * 协议见 memory/tool/svakom/README.md（写特征 ffe1 无响应，设备 3-5 秒收不到就自停 → 有动作时每 1 秒重发）：
+ *  联动强度 55 04 00 00 01 [v] AA（棒=伸缩+转珠+拍打联动；吸=吮吸强度）｜独立伸缩 55 08 00 00 [0-7] 00 00｜独立拍打 55 07 00 00 [0-7] 00 00
+ *  振动 55 03 00 00 [mode 1-10] [level 1-10] 00｜加热 55 05 01 37 00 00 00 / 关 55 05 00 00 00 00 00
  */
 object ToyController {
     private val WRITE_UUID: UUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
@@ -40,11 +41,18 @@ object ToyController {
     val status = MutableLiveData("未连接")
     val wandConnected = MutableLiveData(false)
     val suckConnected = MutableLiveData(false)
-    val wandLevel = MutableLiveData(0)
-    val suckLevel = MutableLiveData(0)
     val remoteAllowed = MutableLiveData(false)
     /** 最近一条动作，她屏幕上看得见是谁发的、发了什么 */
     val log = MutableLiveData("")
+    // 各路当前值（给页面显示）
+    val wandLevel = MutableLiveData(0)     // 棒联动强度 0-180
+    val suckLevel = MutableLiveData(0)     // 吸强度 0-180
+    val stretchLevel = MutableLiveData(0)  // 伸缩 0-7
+    val patLevel = MutableLiveData(0)      // 拍打 0-7
+    val vibMode = MutableLiveData(0)       // 振动模式 0=关 1-10
+    val vibLevel = MutableLiveData(5)      // 振动强度 1-10
+    val heatWand = MutableLiveData(false)
+    val heatSuck = MutableLiveData(false)
 
     private val handler = Handler(Looper.getMainLooper())
     private var app: Context? = null
@@ -55,9 +63,17 @@ object ToyController {
     private var suckGatt: BluetoothGatt? = null
     private var wandChar: BluetoothGattCharacteristic? = null
     private var suckChar: BluetoothGattCharacteristic? = null
-    @Volatile private var curWand = 0
-    @Volatile private var curSuck = 0
+
+    @Volatile private var cWand = 0
+    @Volatile private var cSuck = 0
+    @Volatile private var cStretch = 0
+    @Volatile private var cPat = 0
+    @Volatile private var cVibMode = 0
+    @Volatile private var cVibLevel = 5
+    @Volatile private var cHeatWand = false
+    @Volatile private var cHeatSuck = false
     @Volatile private var remoteDeadline = 0L
+    @Volatile private var lastNote = ""
 
     fun init(ctx: Context, send: (JSONObject) -> Unit) {
         app = ctx.applicationContext
@@ -72,6 +88,7 @@ object ToyController {
         needed().all { ContextCompat.checkSelfPermission(ctx, it) == PackageManager.PERMISSION_GRANTED }
 
     private fun post(s: String) = status.postValue(s)
+    private fun note(s: String) { lastNote = s; log.postValue(s) }
 
     // ---------- 扫描 / 连接 ----------
 
@@ -84,7 +101,7 @@ object ToyController {
         if (!hasPermissions(ctx)) { post("没给蓝牙权限"); return }
         stopScan()
         scanner = adapter.bluetoothLeScanner
-        post("扫描中… 10 秒")
+        post("扫描中… 15 秒")
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val name = result.device.name ?: result.scanRecord?.deviceName ?: return
@@ -99,8 +116,10 @@ object ToyController {
         scanner?.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
         handler.postDelayed({
             stopScan()
-            if (wandGatt == null && suckGatt == null) post("没扫到 看看玩具开机了没 手机上的 SVAKOM 关了没")
-        }, 10_000)
+            if (wandGatt == null && suckGatt == null) post("没扫到 看看玩具开机了没（灯亮） 手机上的 SVAKOM 关了没")
+            else if (suckGatt == null) post("只连到棒 吸的没在广播（充电/开机看灯）")
+            else if (wandGatt == null) post("只连到吸 棒没在广播")
+        }, 15_000)
     }
 
     @SuppressLint("MissingPermission")
@@ -120,8 +139,8 @@ object ToyController {
                     g.discoverServices()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     try { g.close() } catch (_: Exception) {}
-                    if (isWand) { wandGatt = null; wandChar = null; curWand = 0; wandConnected.postValue(false); wandLevel.postValue(0) }
-                    else { suckGatt = null; suckChar = null; curSuck = 0; suckConnected.postValue(false); suckLevel.postValue(0) }
+                    if (isWand) { wandGatt = null; wandChar = null; wandConnected.postValue(false); clearWand() }
+                    else { suckGatt = null; suckChar = null; suckConnected.postValue(false); clearSuck() }
                     post("$label 断开了")
                     pushStatus()
                 }
@@ -147,10 +166,21 @@ object ToyController {
         post("未连接")
     }
 
-    // ---------- 写指令 ----------
+    private fun clearWand() { cWand = 0; cStretch = 0; cPat = 0; cVibMode = 0; cHeatWand = false
+        wandLevel.postValue(0); stretchLevel.postValue(0); patLevel.postValue(0); vibMode.postValue(0); heatWand.postValue(false) }
+    private fun clearSuck() { cSuck = 0; cHeatSuck = false; suckLevel.postValue(0); heatSuck.postValue(false) }
 
-    private fun scaleCmd(v: Int) = byteArrayOf(0x55, 0x04, 0x00, 0x00, 0x01, v.coerceIn(0, 255).toByte(), 0xAA.toByte())
-    private fun stopCmd() = byteArrayOf(0x55, 0x04, 0x00, 0x00, 0x00, 0x00, 0xAA.toByte())
+    // ---------- 指令 ----------
+
+    private fun b(vararg v: Int) = ByteArray(v.size) { v[it].toByte() }
+    private fun scaleCmd(v: Int) = b(0x55, 0x04, 0x00, 0x00, 0x01, v.coerceIn(0, 255), 0xAA)
+    private fun scaleStop() = b(0x55, 0x04, 0x00, 0x00, 0x00, 0x00, 0xAA)
+    private fun stretchCmd(s: Int) = b(0x55, 0x08, 0x00, 0x00, s.coerceIn(0, 7), 0x00, 0x00)
+    private fun patCmd(s: Int) = b(0x55, 0x07, 0x00, 0x00, s.coerceIn(0, 7), 0x00, 0x00)
+    private fun vibCmd(mode: Int, level: Int) = b(0x55, 0x03, 0x00, 0x00, mode.coerceIn(1, 10), level.coerceIn(1, 10), 0x00)
+    private fun vibStop() = b(0x55, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00)
+    private fun heatOn() = b(0x55, 0x05, 0x01, 0x37, 0x00, 0x00, 0x00)
+    private fun heatOff() = b(0x55, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00)
 
     @SuppressLint("MissingPermission")
     private fun write(g: BluetoothGatt?, ch: BluetoothGattCharacteristic?, bytes: ByteArray) {
@@ -160,43 +190,67 @@ object ToyController {
             else { ch.value = bytes; g.writeCharacteristic(ch) }
         } catch (_: Exception) {}
     }
+    private fun wWand(bytes: ByteArray) = write(wandGatt, wandChar, bytes)
+    private fun wSuck(bytes: ByteArray) = write(suckGatt, suckChar, bytes)
 
+    private fun active() = cWand > 0 || cSuck > 0 || cStretch > 0 || cPat > 0 || cVibMode > 0
+
+    /** 每秒重发一遍当前所有动作（设备 3-5 秒收不到就自停） */
     private fun tick() {
-        write(wandGatt, wandChar, if (curWand > 0) scaleCmd(curWand) else stopCmd())
-        write(suckGatt, suckChar, if (curSuck > 0) scaleCmd(curSuck) else stopCmd())
+        if (cWand > 0) wWand(scaleCmd(cWand))
+        if (cStretch > 0) wWand(stretchCmd(cStretch))
+        if (cPat > 0) wWand(patCmd(cPat))
+        if (cVibMode > 0) wWand(vibCmd(cVibMode, cVibLevel))
+        if (cSuck > 0) wSuck(scaleCmd(cSuck))
     }
 
     private val keepalive = object : Runnable {
         override fun run() {
             if (remoteDeadline > 0 && System.currentTimeMillis() > remoteDeadline) { stopAll("辰的指令 120 秒没续 自动停"); return }
             tick()
-            if (curWand > 0 || curSuck > 0) handler.postDelayed(this, 1000)
+            if (active()) handler.postDelayed(this, 1000)
         }
     }
 
-    /** 设档位。wand/suck 传 null 表示不动那一路。from 是给屏幕看的来源（你 / 辰）。 */
-    fun set(wand: Int?, suck: Int?, from: String) {
-        wand?.let { curWand = it.coerceIn(0, MAX_LEVEL) }
-        suck?.let { curSuck = it.coerceIn(0, MAX_LEVEL) }
-        wandLevel.postValue(curWand); suckLevel.postValue(curSuck)
-        log.postValue("$from：棒 $curWand  吸 $curSuck")
+    private fun restartLoop() {
         handler.post {
             handler.removeCallbacks(keepalive)
             tick()
-            if (curWand > 0 || curSuck > 0) handler.postDelayed(keepalive, 1000)
+            if (active()) handler.postDelayed(keepalive, 1000)
         }
+    }
+
+    /**
+     * 统一入口。传 null 的项不动。from 是给屏幕看的来源（你 / 辰）。
+     * 某一路调成 0 时立刻发那一路的停止指令。
+     */
+    fun apply(from: String, wand: Int? = null, suck: Int? = null, stretch: Int? = null, pat: Int? = null,
+              vibModeV: Int? = null, vibLevelV: Int? = null, heatW: Boolean? = null, heatS: Boolean? = null) {
+        val parts = ArrayList<String>()
+        wand?.let { cWand = it.coerceIn(0, MAX_LEVEL); wandLevel.postValue(cWand); parts += "联动$cWand"; if (cWand == 0) handler.post { wWand(scaleStop()) } }
+        suck?.let { cSuck = it.coerceIn(0, MAX_LEVEL); suckLevel.postValue(cSuck); parts += "吸$cSuck"; if (cSuck == 0) handler.post { wSuck(scaleStop()) } }
+        stretch?.let { cStretch = it.coerceIn(0, 7); stretchLevel.postValue(cStretch); parts += "伸缩$cStretch"; if (cStretch == 0) handler.post { wWand(stretchCmd(0)) } }
+        pat?.let { cPat = it.coerceIn(0, 7); patLevel.postValue(cPat); parts += "拍打$cPat"; if (cPat == 0) handler.post { wWand(patCmd(0)) } }
+        vibLevelV?.let { cVibLevel = it.coerceIn(1, 10); vibLevel.postValue(cVibLevel) }
+        vibModeV?.let { cVibMode = it.coerceIn(0, 10); vibMode.postValue(cVibMode); parts += if (cVibMode == 0) "振动关" else "振动模式$cVibMode×$cVibLevel"; if (cVibMode == 0) handler.post { wWand(vibStop()) } }
+        if (vibModeV == null && vibLevelV != null && cVibMode > 0) parts += "振动强度$cVibLevel"
+        heatW?.let { cHeatWand = it; heatWand.postValue(it); parts += if (it) "棒加热开" else "棒加热关"; handler.post { wWand(if (it) heatOn() else heatOff()) } }
+        heatS?.let { cHeatSuck = it; heatSuck.postValue(it); parts += if (it) "吸加热开" else "吸加热关"; handler.post { wSuck(if (it) heatOn() else heatOff()) } }
+        note("$from：" + parts.joinToString(" "))
+        restartLoop()
         pushStatus()
     }
 
     fun stopAll(why: String = "一键停") {
-        curWand = 0; curSuck = 0; remoteDeadline = 0L
+        cWand = 0; cSuck = 0; cStretch = 0; cPat = 0; cVibMode = 0; cHeatWand = false; cHeatSuck = false; remoteDeadline = 0L
         handler.post {
             handler.removeCallbacks(keepalive)
-            write(wandGatt, wandChar, stopCmd())
-            write(suckGatt, suckChar, stopCmd())
+            wWand(scaleStop()); wWand(vibStop()); wWand(stretchCmd(0)); wWand(patCmd(0)); wWand(heatOff())
+            wSuck(scaleStop()); wSuck(heatOff())
         }
-        wandLevel.postValue(0); suckLevel.postValue(0)
-        log.postValue(why)
+        wandLevel.postValue(0); suckLevel.postValue(0); stretchLevel.postValue(0); patLevel.postValue(0); vibMode.postValue(0)
+        heatWand.postValue(false); heatSuck.postValue(false)
+        note(why)
         pushStatus()
     }
 
@@ -204,30 +258,38 @@ object ToyController {
 
     fun allowRemote(on: Boolean) {
         remoteAllowed.postValue(on)
-        if (!on) { remoteDeadline = 0L; if (curWand > 0 || curSuck > 0) stopAll("远程已关 顺手停了") else pushStatus() }
+        if (!on) { remoteDeadline = 0L; if (active() || cHeatWand || cHeatSuck) stopAll("远程已关 顺手停了") else pushStatus() }
         else pushStatus()
     }
 
-    /** ChenService 收到 {"type":"toy", ...} 时调这里。{"stop":true} 或 {"wand":int,"suck":int}（都可选）。 */
+    /**
+     * ChenService 收到 {"type":"toy", ...} 时调这里。
+     * 字段都可选：stop / wand / suck / stretch / pat / vib_mode / vib_level / heat_wand / heat_suck
+     */
     fun onRemote(o: JSONObject) {
         if (remoteAllowed.value != true) {
-            log.postValue("收到辰的指令 但远程没开 已忽略")
+            note("收到辰的指令 但远程没开 已忽略")
             pushStatus(); return
         }
         if (o.optBoolean("stop", false)) { stopAll("辰：停"); return }
         remoteDeadline = System.currentTimeMillis() + REMOTE_TTL_MS
-        set(if (o.has("wand")) o.optInt("wand") else null, if (o.has("suck")) o.optInt("suck") else null, "辰")
+        fun i(k: String) = if (o.has(k)) o.optInt(k) else null
+        fun bo(k: String) = if (o.has(k)) o.optBoolean(k) else null
+        apply("辰", wand = i("wand"), suck = i("suck"), stretch = i("stretch"), pat = i("pat"),
+            vibModeV = i("vib_mode"), vibLevelV = i("vib_level"), heatW = bo("heat_wand"), heatS = bo("heat_suck"))
     }
 
-    private fun pushStatus() {
+    fun pushStatus() {
         val o = JSONObject()
             .put("type", "toy_status")
             .put("wand", wandGatt != null && wandChar != null)
             .put("suck", suckGatt != null && suckChar != null)
-            .put("wand_level", curWand)
-            .put("suck_level", curSuck)
+            .put("wand_level", cWand).put("suck_level", cSuck)
+            .put("stretch", cStretch).put("pat", cPat)
+            .put("vib_mode", cVibMode).put("vib_level", cVibLevel)
+            .put("heat_wand", cHeatWand).put("heat_suck", cHeatSuck)
             .put("allowed", remoteAllowed.value == true)
-            .put("note", log.value ?: "")
+            .put("note", lastNote)
         try { sender?.invoke(o) } catch (_: Exception) {}
     }
 }
