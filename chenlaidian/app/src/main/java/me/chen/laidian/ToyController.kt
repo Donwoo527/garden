@@ -102,12 +102,15 @@ object ToyController {
         stopScan()
         scanner = adapter.bluetoothLeScanner
         post("扫描中… 15 秒")
+        val seen = java.util.LinkedHashSet<String>()   // 0.90 把扫到的名字都列出来 好看吸的是不是换了名字在广播
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 val name = result.device.name ?: result.scanRecord?.deviceName ?: return
+                if (seen.add(name)) post("扫描中… 扫到：" + seen.joinToString(" / "))
                 when {
-                    name.contains("SL278H") && wandGatt == null -> connect(result.device, isWand = true)
-                    name.contains("SL278J") && suckGatt == null -> connect(result.device, isWand = false)
+                    !name.contains("SL278") -> {}
+                    name.contains("SL278H") -> if (wandGatt == null) connect(result.device, isWand = true)
+                    else -> if (suckGatt == null) connect(result.device, isWand = false)   // SL278J / SL278E 都算吸
                 }
             }
             override fun onScanFailed(errorCode: Int) { post("扫描失败 $errorCode") }
@@ -116,9 +119,11 @@ object ToyController {
         scanner?.startScan(null, ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
         handler.postDelayed({
             stopScan()
-            if (wandGatt == null && suckGatt == null) post("没扫到 看看玩具开机了没（灯亮） 手机上的 SVAKOM 关了没")
-            else if (suckGatt == null) post("只连到棒 吸的没在广播（充电/开机看灯）")
-            else if (wandGatt == null) post("只连到吸 棒没在广播")
+            val list = if (seen.isEmpty()) "一个蓝牙都没扫到" else "扫到：" + seen.joinToString(" / ")
+            if (wandGatt == null && suckGatt == null) post("没连上玩具。$list")
+            else if (suckGatt == null) post("只连到棒，吸的没在广播。$list")
+            else if (wandGatt == null) post("只连到吸，棒没在广播。$list")
+            else post("棒和吸都连上了")
         }, 15_000)
     }
 
