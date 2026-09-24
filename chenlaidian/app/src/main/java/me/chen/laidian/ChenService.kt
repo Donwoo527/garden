@@ -177,6 +177,8 @@ class ChenService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannels()
+        // 0.88 玩具页：把 ws 交给它，收到辰的指令走 onRemote，状态回传给服务端
+        ToyController.init(this) { send(it) }
         client = Tls.client(this)
         audio = AudioEngine(this, client, { send(it) }, { sttStatus.postValue(it) })
         me.chen.laidian.net.ChatClient.start(applicationContext)
@@ -308,6 +310,7 @@ class ChenService : Service() {
             }
             "incoming_call" -> showIncomingCall(o.optString("text", "辰打电话来了"))
             "hangup" -> endCall("已挂断")
+            "toy" -> ToyController.onRemote(o)
             "error" -> setStatus("错误：" + o.optString("message"))
         }
     }

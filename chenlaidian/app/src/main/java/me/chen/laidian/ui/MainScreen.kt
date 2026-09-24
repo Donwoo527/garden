@@ -158,6 +158,9 @@ private fun TerminalPlaceholder() {
 @Composable
 private fun ToolsScreen() {
     val ctx = LocalContext.current
+    // 0.88 玩具页（她 0924 点的单：把电脑上那套蓝牙控制搬进手机）
+    var showToy by remember { mutableStateOf(false) }
+    if (showToy) { ToyScreen(onBack = { showToy = false }); return }
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
@@ -194,7 +197,7 @@ private fun ToolsScreen() {
                 ctx.startActivity(Intent(ctx, me.chen.laidian.UsageActivity::class.java))
             }
             IconCard("工具清单", R.drawable.ic_checklist, C.Blue, Modifier.weight(1f)) { todo("工具清单") }
-            Spacer(Modifier.weight(1f))
+            IconCard("玩具", R.drawable.ic_handyman, Color(0xFFE0668A), Modifier.weight(1f)) { showToy = true }
         }
     }
 }
