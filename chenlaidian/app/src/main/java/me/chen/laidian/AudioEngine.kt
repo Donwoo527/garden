@@ -37,11 +37,15 @@ class AudioEngine(
         private const val MIN_SPEECH_MS = 350       // 短于这个的当噪音丢掉
         private const val END_SILENCE_MS = 1500      // 说完停顿多久算一句（0908 实测 700 会把她的话切碎）
         private const val MAX_UTTERANCE_MS = 15000  // 一句最长
+        // 0.96 轮流说：她正说着时我的回复先等她这句说完再播，最多等这么久（0925 夜"你一说话我的话就没识别了"）
+        private const val WAIT_TURN_MS = 8000L
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     @Volatile private var capturing = false
     @Volatile private var muted = false
+    // 0.96 她此刻是不是正说到一半（capture 线程写，play 线程读：用来等她说完再开口）
+    @Volatile private var userSpeaking = false
     // 0.45 音频焦点：真电话/别的app抢走声音时暂停 抢完自动恢复（0911她通话被打断只能重拨的坑）
     @Volatile private var interrupted = false
     private var focusRequest: android.media.AudioFocusRequest? = null
@@ -211,11 +215,17 @@ class AudioEngine(
                     val n = rec.read(frame, 0, FRAME_BYTES)
                     if (n <= 0) continue
                     if (muted || interrupted) { // 辰在说 / 0.45 被真电话打断：丢帧，重置状态
-                        utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; continue
+                        // 0.96：辰开口那一下她那句正说到一半——先把已说的发出去，不再整句扔掉
+                        // （以前这里直接 reset：0925 夜她"说了一大堆好像没识别出来"。被真电话打断的不发）
+                        if (muted && !interrupted && inSpeech && speechMs >= MIN_SPEECH_MS) {
+                            val b64 = Base64.encodeToString(utter.toByteArray(), Base64.NO_WRAP)
+                            send(JSONObject().put("type", "audio").put("audio", b64).put("format", "pcm16k"))
+                        }
+                        utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; userSpeaking = false; continue
                     }
                     val loud = rms(frame, n) > SPEECH_RMS
                     if (loud) {
-                        if (!inSpeech) { inSpeech = true; onState("你在说…") }
+                        if (!inSpeech) { inSpeech = true; userSpeaking = true; onState("你在说…") }
                         utter.write(frame, 0, n); speechMs += FRAME_MS; silenceMs = 0
                     } else if (inSpeech) {
                         utter.write(frame, 0, n); silenceMs += FRAME_MS
@@ -227,10 +237,11 @@ class AudioEngine(
                             send(JSONObject().put("type", "audio").put("audio", b64).put("format", "pcm16k"))
                             onState("发出去了，等辰…")
                         }
-                        utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false
+                        utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; userSpeaking = false
                     }
                 }
             } finally {
+                userSpeaking = false
                 try { rec.stop() } catch (_: Exception) {}
                 rec.release()
             }
@@ -293,6 +304,12 @@ class AudioEngine(
             }
         } catch (e: Exception) { onState("下载回复失败：${e.message}"); return }
 
+        // 0.96 轮流说：她正说着就先别开口，等她这句说完（静音 1.5 秒发出去）再播；
+        // 最多等 WAIT_TURN_MS，还在说就开口——capture 那边会先把她已说的半句发出去，不扔
+        val t0 = android.os.SystemClock.elapsedRealtime()
+        while (userSpeaking && capturing && android.os.SystemClock.elapsedRealtime() - t0 < WAIT_TURN_MS) {
+            try { Thread.sleep(50) } catch (_: InterruptedException) { break }
+        }
         muted = true
         onState("辰在说…")
         val done = Object()
