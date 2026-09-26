@@ -485,7 +485,7 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
         Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
             AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
             Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
-                ThinkingPreview(m.text)
+                ThinkingFold(m.text)  // 0926 她点的：独立思考条默认只留"💭 思考"一行 点开才展开（原 ThinkingPreview 三行预览）
                 if (showTime) TimeUnder(m.timeLabel(), false, false)
                 Spacer(Modifier.height(3.dp))
             }
