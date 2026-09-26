@@ -106,7 +106,7 @@ object ChatClient {
             "msg" -> {
                 val m = Msg.from(o)
                 if (m.id.isNotEmpty() && messages.value.none { it.id == m.id }) {
-                    messages.value = messages.value + m
+                    messages.value = (messages.value + m).sortedBy { it.ts }  // 0926 思考按真实时间排：它比回复晚到半秒 但 ts 在前 要排到回复上面
                     onMessage?.invoke(m)
                 }
                 if (m.who == "chen") pendingThinking.value = null
