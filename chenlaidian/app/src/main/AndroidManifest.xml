@@ -29,6 +29,8 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- 0926 应用内自更新：下完 apk 拉系统安装器要这个（8.0+ 还得她在系统设置里给"允许安装未知应用"，AppUpdater 会跳过去） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".ChenApp"

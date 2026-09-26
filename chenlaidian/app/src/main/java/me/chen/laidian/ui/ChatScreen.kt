@@ -208,10 +208,13 @@ private fun MessageRow(m: Msg, all: List<Msg>, loader: ImageLoader, read: Boolea
         }
         return
     }
-    // 独立思考消息：跟 Jet 页同一套半折叠预览 别在安全模式下退化成整段大字
-    if (m.msgType == "thinking") {
+    // 独立思考消息：跟 Jet 页同一套半折叠预览 别在安全模式下退化成整段大字；0926 工具行同档小灰字 别当成辰说的话画成气泡
+    if (m.msgType == "thinking" || m.msgType == "tool") {
         Box(Modifier.fillMaxWidth().padding(bottom = 8.dp), contentAlignment = Alignment.CenterStart) {
-            Box(Modifier.widthIn(max = 300.dp)) { me.chen.laidian.ui.jet.ThinkingPreview(m.text) }
+            Box(Modifier.widthIn(max = 300.dp)) {
+                if (m.msgType == "tool") Text("🔧 " + m.text, fontSize = 12.sp, color = C.Grey)
+                else me.chen.laidian.ui.jet.ThinkingPreview(m.text)
+            }
         }
         return
     }

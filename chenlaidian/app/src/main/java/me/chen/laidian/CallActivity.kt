@@ -49,6 +49,19 @@ class CallActivity : AppCompatActivity() {
         setContentView(R.layout.activity_call)
         // 0.77 她点的：通话页铺到屏幕最顶端 不留状态栏那条紫色。背景延伸到顶 内容在状态栏下方开始
         findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0)?.let { root ->
+            // 0926 深色磨砂玻璃：12+ 有窗口模糊(上面的 blurBehind) 用半透明深色 call_bg 压在聊天页上；
+            // 11 及以下没模糊 会把清晰的聊天页透出来 换成不透明深色渐变 call_bg_opaque 兜底
+            val base = androidx.core.content.ContextCompat.getDrawable(this, if (Build.VERSION.SDK_INT >= 31) R.drawable.call_bg else R.drawable.call_bg_opaque)
+            // 0926 暗角（她说微信那层"外围边框是有景深的"）：遮罩之上再叠一层径向渐变 中心透明 四周压 45% 黑 半径≈屏幕对角线 × 0.75
+            val dm = resources.displayMetrics
+            val vignette = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0x00000000, 0x73000000)
+            ).apply {
+                gradientType = android.graphics.drawable.GradientDrawable.RADIAL_GRADIENT
+                setGradientCenter(0.5f, 0.5f)
+                gradientRadius = 0.75f * Math.hypot(dm.widthPixels.toDouble(), dm.heightPixels.toDouble()).toFloat()
+            }
+            root.background = android.graphics.drawable.LayerDrawable(arrayOf(base, vignette))
             val basePad = root.paddingTop
             ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
                 val top = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
@@ -62,8 +75,10 @@ class CallActivity : AppCompatActivity() {
         val state = findViewById<TextView>(R.id.callState)
         val accept = findViewById<Button>(R.id.btnAccept)
         val acceptWrap = findViewById<View>(R.id.acceptWrap)
-        val hangup = findViewById<Button>(R.id.btnHangup)
-        val speaker = findViewById<Button>(R.id.btnSpeaker)
+        // 0926 底排圆钮（参考微信）：挂断/免提都改成 AppCompatImageButton（图标钮 不是 Button 了）；免提显示/隐藏控制整个 wrap
+        val hangup = findViewById<View>(R.id.btnHangup)
+        val speaker = findViewById<View>(R.id.btnSpeaker)
+        val speakerWrap = findViewById<View>(R.id.speakerWrap)
         // 0.32 字幕改累积历史：追加显示可回翻；在底部时新句自动滚下来，手动上翻时不抢
         val cap = findViewById<TextView>(R.id.callLast)
         val capScroll = findViewById<android.widget.ScrollView>(R.id.capScroll)
@@ -74,10 +89,11 @@ class CallActivity : AppCompatActivity() {
             cap.append((if (cap.text.isEmpty()) "" else "\n\n") + line)
             if (atBottom) capScroll.post { capScroll.fullScroll(View.FOCUS_DOWN) }
         }
-        ChenService.speakerOn.observe(this) { speaker.text = if (it) "免提：开" else "免提：关" }
+        // 0926 免提开着：底色微微变灰（她给的参考：微信那种）；标签固定「免提」
+        ChenService.speakerOn.observe(this) { speaker.setBackgroundResource(if (it) R.drawable.btn_circle_grey else R.drawable.btn_circle_white) }
         ChenService.callState.observe(this) {
             if (it == "已挂断") { stopRinging(); beepEnd(); finish() }
-            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speaker.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
+            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speakerWrap.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
         }
         // 0.41 听着呢/翻译中这类状态显示在"通话中"下面 不再刷进字幕区
         ChenService.sttStatus.observe(this) { if (ChenService.callState.value == "通话中") state.text = it ?: "" }

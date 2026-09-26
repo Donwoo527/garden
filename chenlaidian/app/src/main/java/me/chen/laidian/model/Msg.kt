@@ -24,7 +24,11 @@ data class Msg(
     val quoteWho: String? = null,   // 0920 服务端带的引用快照 quote{id,who,text}：reply_to 那条不在本地列表时靠它画引用框；老消息没有
     val quoteText: String? = null,
     val reactions: Map<String, List<String>> = emptyMap(),   // 0920 她：气泡表态 emoji→点过的人(chen/xiaochen)；老消息没有
+    val secs: Int? = null,          // 0926 思考行(msgType=thinking)：思考了几秒（watcher 按 jsonl 时间戳差算的）；不可信/老消息没有
+    val tool: String? = null,       // 0926 工具行(msgType=tool)：工具名；text 是一句中文描述
 ) {
+    /** 0926 思考行/工具行：不算新消息、不弹通知、列表里连着的并成一组 */
+    val isAux get() = msgType == "thinking" || msgType == "tool"
     val isChen get() = who == "chen"
 
     fun timeLabel(): String {
@@ -68,6 +72,8 @@ data class Msg(
                 quoteWho = quote?.str("who"),
                 quoteText = quote?.optString("text", ""),
                 reactions = parseReactions(o.optJSONObject("reactions")),
+                secs = if (o.has("secs") && !o.isNull("secs")) o.optInt("secs", -1).takeIf { it >= 0 } else null,
+                tool = o.str("tool"),
             )
         }
 

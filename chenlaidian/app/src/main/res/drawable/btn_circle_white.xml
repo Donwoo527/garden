@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0926 她点的：通话页免提/挂断都改白底圆钮（图标/文字用深色或红色），去掉紫的 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#FFFFFF" />
+</shape>

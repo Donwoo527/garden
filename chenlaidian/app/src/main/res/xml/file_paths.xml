@@ -4,4 +4,6 @@
     <cache-path name="camera" path="camera/" />
     <!-- 0915 文件点开：先下到这里再交给系统 app -->
     <cache-path name="files" path="files/" />
+    <!-- 0926 应用内自更新：新版 apk 下到 cache/update/ 再交给系统安装器 -->
+    <cache-path name="update" path="update/" />
 </paths>

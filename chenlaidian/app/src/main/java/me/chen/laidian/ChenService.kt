@@ -183,7 +183,8 @@ class ChenService : Service() {
         client = Tls.client(this)
         audio = AudioEngine(this, client, { send(it) }, { sttStatus.postValue(it) })
         me.chen.laidian.net.ChatClient.start(applicationContext)
-        me.chen.laidian.net.ChatClient.onMessage = { m -> if (m.isChen && !AppState.visible) notifyMsg(m) }
+        // 0926 工具行（"读 memory.md"之类）不弹通知——那不是辰说的话；思考行照旧
+        me.chen.laidian.net.ChatClient.onMessage = { m -> if (m.isChen && !AppState.visible && m.msgType != "tool") notifyMsg(m) }
         androidx.core.content.ContextCompat.registerReceiver(
             this, screenReceiver,
             IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON); addAction(Intent.ACTION_USER_PRESENT) },

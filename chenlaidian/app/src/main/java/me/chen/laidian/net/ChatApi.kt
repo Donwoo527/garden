@@ -40,6 +40,24 @@ object ChatApi {
         } catch (e: Exception) { lastError = "上传 ${e.javaClass.simpleName}${e.message?.let { ": " + it.take(60) } ?: ""}"; null }
     }
 
+    /** 0926 她的语音消息：m4a 传给 /upload_voice（一步产生消息：服务端落盘+入库+广播，再后台转文字给辰），返回 /media/voice_in_xxx.m4a。
+     *  duration 是 app 量的秒数，服务端 ffprobe 读得出就用自己的 */
+    fun uploadVoice(ctx: Context, file: java.io.File, durationSec: Double): String? {
+        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.readBytes().toRequestBody("audio/mp4".toMediaType()))
+            .build()
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/upload_voice?duration=" + "%.1f".format(java.util.Locale.US, durationSec))
+            .header("X-Token", TOKEN).post(body).build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) { lastError = "语音上传被拒 HTTP ${r.code}"; return null }
+                val url = JSONObject(r.body?.string() ?: "{}").optString("url", "").takeIf { it.isNotBlank() }
+                if (url == null) lastError = "语音上传返回里没有地址"
+                url
+            }
+        } catch (e: Exception) { lastError = "语音上传 ${e.javaClass.simpleName}${e.message?.let { ": " + it.take(60) } ?: ""}"; null }
+    }
+
     /** 多张图 + 可选配文合成一条消息 */
     fun sendImages(ctx: Context, urls: List<String>, text: String): Boolean = postJson(
         ctx, "/send_images", JSONObject().put("images", JSONArray(urls)).put("text", text)

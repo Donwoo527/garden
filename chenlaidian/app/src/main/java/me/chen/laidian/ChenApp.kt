@@ -12,6 +12,7 @@ import java.io.StringWriter
 class ChenApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        AppState.loadDraft(this)   // 0926 聊天输入框草稿：冷启动从 SharedPreferences 读回来
         val file = File(filesDir, "crash.txt")
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->

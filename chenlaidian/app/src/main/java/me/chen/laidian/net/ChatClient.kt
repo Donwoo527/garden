@@ -40,6 +40,9 @@ object ChatClient {
     val avatarXiaochen = MutableStateFlow("")
     val moments = MutableStateFlow<List<Moment>>(emptyList())
     val momentsUnread = MutableStateFlow(0)
+    /** 0926 搜索栏的服务端全量结果（按 ts 正序）；只认最后一次 search() 的 q */
+    val searchResults = MutableStateFlow<List<Msg>>(emptyList())
+    @Volatile private var searchQuery = ""
     /** 新消息回调（服务用它在 app 不在前台时弹通知） */
     @Volatile var onMessage: ((Msg) -> Unit)? = null
 
@@ -112,10 +115,14 @@ object ChatClient {
                 if (m.who == "chen") pendingThinking.value = null
             }
             "thinking" -> pendingThinking.value = o.optString("text", "").takeIf { it.isNotBlank() }
+            // 0926 服务端搜索结果：q 对不上（她又打了几个字 / 已清空）的旧结果丢掉
+            "search" -> if (searchQuery.isNotBlank() && o.optString("q") == searchQuery) searchResults.value = Msg.list(o.optJSONArray("items")).sortedBy { it.ts }
             "status" -> status.value = o.optString("state", "idle")
             "read" -> o.optJSONArray("ids")?.let { a -> readIds.value = readIds.value + (0 until a.length()).map { i -> a.optString(i) } }
             // 0920 表态广播：全量替换那条的 reactions（空对象 = 全取消了）
             "reaction" -> { val id = o.optString("id"); val r = Msg.parseReactions(o.optJSONObject("reactions")); messages.value = messages.value.map { if (it.id == id) it.copy(reactions = r) else it } }
+            // 0926 她的语音转写到了：把文字塞进那条的 text（语音气泡「查看文字版」读的就是 text 和辰的语音同一套渲染；历史里服务端已合并好）
+            "transcript" -> { val id = o.optString("id"); val t = o.optString("text", ""); if (id.isNotBlank() && t.isNotBlank()) messages.value = messages.value.map { if (it.id == id) it.copy(text = t) else it } }
             "session_status" -> sessionAlive.value = o.optBoolean("alive", false)
             "profile" -> {
                 o.optString("mood", "").takeIf { it.isNotBlank() }?.let { mood.value = it }
@@ -147,6 +154,13 @@ object ChatClient {
         if (!replyTo.isNullOrBlank()) o.put("reply_to", replyTo)
         typing(false)
         return ws?.send(o.toString()) ?: false
+    }
+
+    /** 0926 她："搜索栏输入文字不搜"——本地只有已加载的一页 改走服务端全量搜（文本包含 忽略大小写 不含思考/工具行）；q 为空 = 清结果 */
+    fun search(q: String) {
+        searchQuery = q
+        if (q.isBlank()) { searchResults.value = emptyList(); return }
+        ws?.send(JSONObject().put("type", "search").put("q", q).put("limit", 200).toString())
     }
 
     fun loadMore() {

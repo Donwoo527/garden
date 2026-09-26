@@ -70,6 +70,7 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.chen.laidian.AppState
 import me.chen.laidian.R
 import me.chen.laidian.Tls
 import me.chen.laidian.net.ChatApi
@@ -94,7 +95,7 @@ fun JetUserInput(
     insertText: String? = null,
     onInsertConsumed: () -> Unit = {},
     onSendSticker: (String) -> Unit = {},
-    onMessageSent: (String) -> Unit,
+    onMessageSent: (String) -> Boolean,   // 0926 返回发没发出去：发出去才清输入框（没连上后端时字留着）
     onTyping: (Boolean) -> Unit,
     onPickImages: () -> Unit,
     onPickFile: () -> Unit = {},
@@ -110,24 +111,28 @@ fun JetUserInput(
     LaunchedEffect(collapseTick) { if (collapseTick > 0) selector = InputSelector.NONE }
     LaunchedEffect(selector) { onPanelOpen(selector != InputSelector.NONE) }
     if (selector != InputSelector.NONE) BackHandler(onBack = dismiss)
-    var textState by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
+    // 0926 她报的 bug：打一半切到别的 tab 再回来字没了——这页离开组合时 remember/rememberSaveable 的草稿一起丢。
+    // 草稿真身在 AppState.chatDraft（全局 + SharedPreferences 冷启动读回），这里的 TextFieldValue 只是它加个光标位置：
+    // 进来从它初始化、每次变化写回去（所有改字的口都走 setText）、发送成功才清
+    val ctx0 = LocalContext.current
+    var textState by remember { val d = AppState.chatDraft.value; mutableStateOf(TextFieldValue(d, TextRange(d.length))) }
+    fun setText(v: TextFieldValue) { textState = v; if (v.text != AppState.chatDraft.value) AppState.saveDraft(ctx0, v.text) }
     var focused by remember { mutableStateOf(false) }
     // 0.36 转发:外部塞文本进输入框(她的用例:把我的原话拿去发我)
     androidx.compose.runtime.LaunchedEffect(insertText) {
         if (insertText != null) {
             val t = textState.text + insertText
-            textState = TextFieldValue(t, TextRange(t.length))
+            setText(TextFieldValue(t, TextRange(t.length)))
             onInsertConsumed()
         }
     }
     val send = {
         val t = textState.text.trim()
-        if (t.isNotEmpty()) { onMessageSent(t); textState = TextFieldValue(); onTyping(false); resetScroll() }
+        if (t.isNotEmpty() && onMessageSent(t)) { setText(TextFieldValue()); onTyping(false); resetScroll() }
     }
 
     // 0915 她的 Frame 1（2x 量的）：＋在胶囊外左（中心 24）| 胶囊 44 高 圆角 22 从 44 到 310（输入 15 号 表情在胶囊里右侧）| 胶囊外右：没字=麦克风 有字=发送
     val skin = me.chen.laidian.ui.LocalSkin.current
-    val ctx0 = LocalContext.current
     Surface(color = skin.bg, contentColor = skin.ink) {
         Column(modifier) {
             Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Bottom) {
@@ -146,7 +151,7 @@ fun JetUserInput(
                         Box(Modifier.weight(1f).padding(start = 18.dp, end = 4.dp, top = 12.dp, bottom = 12.dp)) {
                             BasicTextField(
                                 value = textState,
-                                onValueChange = { textState = it; onTyping(it.text.isNotEmpty()) },
+                                onValueChange = { setText(it); onTyping(it.text.isNotEmpty()) },
                                 modifier = Modifier.fillMaxWidth()
                                     .onFocusChanged { st -> if (st.isFocused) { selector = InputSelector.NONE; resetScroll() }; focused = st.isFocused },
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -171,19 +176,19 @@ fun JetUserInput(
                     }
                 }
                 Spacer(Modifier.width(4.dp))
-                // 右侧：有字=发送 没字=麦克风（她稿上是麦 语音消息还没做 先老实说）
+                // 右侧：有字=发送 没字=麦克风（0926 语音消息做了：按住说话 松开发 上滑取消 → VoiceRecorder.kt 的 VoiceMicButton）
                 val enabled = textState.text.isNotBlank()
-                Box(
+                if (enabled) Box(
                     Modifier.width(32.dp).height(44.dp)
-                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                            if (enabled) { send(); dismiss() }
-                            else Toast.makeText(ctx0, "语音消息下一版 先打字", Toast.LENGTH_SHORT).show()
-                        },
+                        .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { send(); dismiss() },
                     contentAlignment = Alignment.Center,
-                ) {
-                    if (enabled) Icon(Icons.Default.Send, contentDescription = "发送", tint = skin.ink, modifier = Modifier.size(24.dp))
-                    else Icon(painterResource(R.drawable.ic_mic), contentDescription = "语音", tint = skin.ink, modifier = Modifier.size(24.dp))
-                }
+                ) { Icon(Icons.Default.Send, contentDescription = "发送", tint = skin.ink, modifier = Modifier.size(24.dp)) }
+                else VoiceMicButton(
+                    modifier = Modifier.width(32.dp).height(44.dp),
+                    tint = skin.ink,
+                    onRecordStart = { dismiss() },   // 开录先把表情/加号面板收了
+                    onSent = { resetScroll() },
+                )
             }
             if (selector == InputSelector.EMOJI) {
                 // 0.38 双tab：emoji + 她的收藏表情(微信同款 ➕自己传图 点了直接发)
@@ -238,7 +243,7 @@ fun JetUserInput(
                         if (!stickerTab) {
                             EmojiTable(onTextAdded = { e ->
                                 val t = textState.text.replaceRange(textState.selection.start, textState.selection.end, e)
-                                textState = TextFieldValue(t, TextRange(t.length))
+                                setText(TextFieldValue(t, TextRange(t.length)))
                                 onTyping(true)
                             }, modifier = Modifier.padding(8.dp).focusable())
                         } else {

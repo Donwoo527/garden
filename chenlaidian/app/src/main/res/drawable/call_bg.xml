@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 0.33 她参考图的"半透明灰模糊背景"——径向渐变灰模拟磨砂 -->
+<!-- 0.33 她参考图的"半透明灰模糊背景"——径向渐变灰模拟磨砂
+     0926 她点的（参考微信通话页）：改成深色磨砂玻璃——12+ 窗口模糊(blurBehind 64)之上压一层约 72% 黑，边缘再深到 85%；
+     11 及以下没模糊 CallActivity 换成不透明的 call_bg_opaque 兜底 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
     <gradient android:type="radial" android:gradientRadius="600dp"
         android:centerX="0.5" android:centerY="0.35"
-        android:startColor="#D94A4A52" android:endColor="#E626262B" />
+        android:startColor="#B80C0C10" android:endColor="#D9000000" />
 </shape>

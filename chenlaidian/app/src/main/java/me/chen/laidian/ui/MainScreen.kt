@@ -71,6 +71,7 @@ import me.chen.laidian.CallActivity
 import me.chen.laidian.ChenService
 import me.chen.laidian.net.ChatApi
 import me.chen.laidian.net.ChatClient
+import me.chen.laidian.update.AppUpdater
 
 // 0915 她的稿：Material Symbols 五个图标（chat_bubble / terminal / home / handyman / settings）转成矢量放 res/drawable
 private data class Tab(val label: String, val icon: Int)
@@ -92,6 +93,9 @@ fun MainScreen() {
     val ctx = LocalContext.current
     // 0.43 她点单：辰发朋友圈 dock主页图标也要红点 不点进主页也看得见
     val momentsUnread by ChatClient.momentsUnread.collectAsState()
+    // 0926 应用内自更新：一次启动后台查一次（AppUpdater 里进程级去重，切后台回来不重查）；有新版设置 tab 挂个点，进设置页那行再弹对话框
+    val updateAvail by AppUpdater.available.collectAsState()
+    LaunchedEffect(Unit) { AppUpdater.checkOnLaunch(ctx) }
     val startCall = { ctx.startActivity(Intent(ctx, CallActivity::class.java).putExtra("outgoing", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     // 0.56 底色和底栏跟当前皮肤走（0.52 时是主页灰、其余暖白两套混着）
     val skin = LocalSkin.current
@@ -123,6 +127,10 @@ fun MainScreen() {
                                     Text(if (momentsUnread > 9) "9+" else "$momentsUnread",
                                         fontSize = 8.sp, color = Color.White)
                                 }
+                            }
+                            // 0926 有新版：设置 tab 图标右上挂个小红点（一个点就够 tab 太窄写不下版本号），进设置页那行写着几号版可更新
+                            if (i == 4 && updateAvail != null) {
+                                Box(Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).size(8.dp).background(Color(0xFFE53935), CircleShape))
                             }
                         }
                         Spacer(Modifier.height(3.dp))
@@ -307,6 +315,10 @@ private fun SettingsMain(onFavorites: () -> Unit) {
                 }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("保存") }
             }
         }
+        Spacer(Modifier.height(20.dp))
+        // 0926 应用内自更新：点一下查 /apk/latest，有新版弹对话框下载装；启动自查到的也显示在这行（UpdateDialog.kt）
+        SectionTitle("更新")
+        UpdateRow()
         Spacer(Modifier.height(24.dp))
         Text(if (advanced) "▾ 连接与后台（高级）" else "▸ 连接与后台（高级）", fontSize = 13.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(horizontal = 20.dp).clickable { advanced = !advanced })
         if (advanced) {

@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -56,7 +57,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
@@ -88,6 +88,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -164,7 +165,18 @@ fun JetConversation(onCall: () -> Unit) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
     val scope = rememberCoroutineScope()
     val loader = remember { ImageLoader.Builder(ctx).okHttpClient { Tls.client(ctx) }.build() }
-    val shown = remember(msgs, query) { (if (query.isBlank()) msgs else msgs.filter { it.text.contains(query, true) }).asReversed() }
+    // 0926 她："搜索栏输入文字不搜"——原来只过滤已加载的一页（50 条真消息≈一小时）搜早些的自然空。改成：本地过滤 + 服务端全量搜（防抖 300ms）合并去重按时间排；
+    // 不搜思考/工具行（长段英文 命中全是它们）；清空输入就恢复整个列表
+    val hits by ChatClient.searchResults.collectAsState()
+    LaunchedEffect(query) { if (query.isBlank()) ChatClient.search("") else { kotlinx.coroutines.delay(300); ChatClient.search(query) } }
+    val shown = remember(msgs, query, hits) {
+        if (query.isBlank()) msgs.asReversed()
+        else {
+            val local = msgs.filter { !it.isAux && it.text.contains(query, true) }
+            val have = local.map { it.id }.toHashSet()
+            (local + hits.filter { it.id !in have }).sortedBy { it.ts }.asReversed()
+        }
+    }
     // 0920 她："每次发新消息不能自动定位到底部"——原来只看一眼 firstVisibleItemIndex<=1 就 scrollToItem 一次：新条目量完高位置会漂、她自己发的也可能被判成不在底部
     // 现在：atBottom 持续算（index 0 且离底不到 120dp）；forceBottom 由她的发送动作点亮；她发的(who=xiaochen)一律到底；滚两次（等一帧再补一次）防漂；她在翻旧消息时不拽 只记 unseen 给"回到底部"按钮显示条数
     val bottomSlack = with(LocalDensity.current) { 120.dp.toPx() }
@@ -181,7 +193,7 @@ fun JetConversation(onCall: () -> Unit) {
             withFrameNanos {}
             scrollState.scrollToItem(0)
             unseen = 0
-        } else if (newest != null && newest.msgType != "thinking") unseen++   // 思考行不算新消息
+        } else if (newest != null && !newest.isAux) unseen++   // 思考行/工具行不算新消息
         forceBottom = false
     }
     LaunchedEffect(atBottom) { if (atBottom) unseen = 0 }
@@ -284,6 +296,8 @@ fun JetConversation(onCall: () -> Unit) {
             if (searching) {
                 OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true, placeholder = { Text("搜聊天记录") },
                     shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp))
+                // 0926 给个数：没命中也看得出"搜过了"而不是"没搜"
+                if (query.isNotBlank()) Text("找到 ${shown.size} 条", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 2.dp))
             }
             androidx.compose.runtime.CompositionLocalProvider(LocalPanelOpen provides panelOpen) {
             Messages(shown, msgs, readIds, loader, scrollState, Modifier.weight(1f), unseen = unseen,
@@ -310,7 +324,8 @@ fun JetConversation(onCall: () -> Unit) {
                 collapseTick = collapseTick,
                 onPanelOpen = { panelOpen = it },
                 onSendSticker = { url -> forceBottom = true; scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.sendImages(ctx, listOf(url), "") }; if (!ok) forceBottom = false } },
-                onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) { replyTo = null; forceBottom = true } else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show() },
+                // 0926 返回发没发出去：输入框只在发出去时才清草稿
+                onMessageSent = { t -> if (ChatClient.sendText(t, replyTo?.id)) { replyTo = null; forceBottom = true; true } else { Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show(); false } },
                 onTyping = { ChatClient.typing(it) },
                 onPickImages = { pickImages() },
                 onPickFile = { filePicker.launch(arrayOf("*/*")) },
@@ -405,6 +420,33 @@ private fun Msg.dayLabel(): String {
     return if (day == today) "今天" else SimpleDateFormat("M月d日", Locale.CHINA).format(d)
 }
 
+/** 0926 她点的：列表里连着的思考行并成一条「💭 思考了 N 秒」、连着的工具行并成一条「🔧 跑了 N 件事」。
+ *  Messages 先把 messages 切成这些行再喂 LazyColumn；一组的 key 用组里最新那条的 id */
+private sealed class ChatRow {
+    abstract val newest: Msg   // 时间上最新的一条：key / 时间标签 / 跟更新的邻居比 用它
+    abstract val oldest: Msg   // 时间上最早的一条：跟更早的邻居比 用它
+    data class One(val m: Msg) : ChatRow() { override val newest get() = m; override val oldest get() = m }
+    /** items 按时间从早到晚 */
+    data class Group(val type: String, val items: List<Msg>) : ChatRow() { override val newest get() = items.last(); override val oldest get() = items.first() }
+}
+
+/** messages 倒序（index 0 最新）→ 同样倒序的行列表。思考/工具行：同类型、中间没别的消息、同一天的连成一组（思考组和工具组交替出现时各归各）；其它消息各自一行。
+ *  分页翻进更老的一批时 messages 整个重算 所以页边上被切开的组会自动接上 */
+private fun groupRows(messages: List<Msg>): List<ChatRow> {
+    val out = ArrayList<ChatRow>(messages.size)
+    var i = 0
+    while (i < messages.size) {
+        val m = messages[i]
+        if (!m.isAux) { out += ChatRow.One(m); i++; continue }
+        val day = m.dayLabel()
+        var j = i + 1
+        while (j < messages.size && messages[j].msgType == m.msgType && messages[j].dayLabel() == day) j++
+        out += ChatRow.Group(m.msgType, messages.subList(i, j).asReversed().toList())
+        i = j
+    }
+    return out
+}
+
 @Composable
 private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, loader: ImageLoader, scrollState: LazyListState, modifier: Modifier, unseen: Int,
                      onAnyTap: () -> Unit, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
@@ -431,25 +473,31 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
             }
         }
     }) {
+        // 0926 她点的：连着的思考行 / 工具行各并成一组一行小字（groupRows）；rows 跟 messages 一样倒序 index 0 最新
+        val rows = remember(messages) { groupRows(messages) }
         LazyColumn(reverseLayout = true, state = scrollState, modifier = Modifier.fillMaxSize()) {
-            for (index in messages.indices) {
-                val m = messages[index]
-                val newer = messages.getOrNull(index - 1)
-                val older = messages.getOrNull(index + 1)
+            for (index in rows.indices) {
+                val row = rows[index]
+                val m = row.newest                                   // 这一行的代表：key / 时间标签 用组里最新那条（单条就是它自己）
+                val newer = rows.getOrNull(index - 1)?.oldest        // 时间上紧挨着的更新一条（那边是组就取组里最早的）
+                val older = rows.getOrNull(index + 1)?.newest        // 时间上紧挨着的更早一条（那边是组就取组里最新的）
                 val isFirstMessageByAuthor = newer?.who != m.who      // 这一串里最新的一条 → 下面留大间距
                 val isLastMessageByAuthor = older?.who != m.who       // 这一串里最早的一条 → 显示头像和名字
                 // 0915 她：同一个人同一分钟连发的 只在最后一条下面标时间
                 val showTime = newer == null || newer.who != m.who || newer.timeLabel() != m.timeLabel()
-                // 0926 她定的：思考条后面（时间上的下一条）紧跟着我的气泡 → 折成「💭 思考」一行；前后都没说话的独立思考 → 留三行预览
-                val foldThinking = m.msgType == "thinking" && newer != null && newer.isChen && newer.msgType != "thinking"
                 item(key = m.id) {
-                    // 0920 服务端给带 reply_to 的消息附了引用快照 quote{id,who,text}：被引用那条不在本地列表里（老消息/没翻到）就用快照拼一条只够引用框渲染的 Msg 兜底（引用框只读 id/isChen/text/msgType）
-                    val quoted = all.firstOrNull { it.id == m.replyTo } ?: m.quoteText?.let { Msg(id = m.replyTo ?: "", who = m.quoteWho ?: "chen", msgType = "text", text = it, media = null, voice = null, replyTo = null, thinking = null, ts = 0.0) }
-                    if (m.who == "system") SystemPill(m.text)
-                    else MessageRow(m, quoted, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor, showTime = showTime,
-                        read = m.id in readIds, foldThinking = foldThinking, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onForwardImage = onForwardImage, onFav = onFav, onCopy = onCopy)
+                    when (row) {
+                        is ChatRow.Group -> AuxRow(row, isLastMessageByAuthor, showTime, loader)
+                        is ChatRow.One -> {
+                            // 0920 服务端给带 reply_to 的消息附了引用快照 quote{id,who,text}：被引用那条不在本地列表里（老消息/没翻到）就用快照拼一条只够引用框渲染的 Msg 兜底（引用框只读 id/isChen/text/msgType）
+                            val quoted = all.firstOrNull { it.id == m.replyTo } ?: m.quoteText?.let { Msg(id = m.replyTo ?: "", who = m.quoteWho ?: "chen", msgType = "text", text = it, media = null, voice = null, replyTo = null, thinking = null, ts = 0.0) }
+                            if (m.who == "system") SystemPill(m.text)
+                            else MessageRow(m, quoted, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor, showTime = showTime,
+                                read = m.id in readIds, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onForwardImage = onForwardImage, onFav = onFav, onCopy = onCopy)
+                        }
+                    }
                 }
-                val day = m.dayLabel()
+                val day = m.dayLabel()   // 组不跨天（groupRows 按天切）所以看最新那条就够
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
             }
         }
@@ -462,7 +510,7 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
         }
         val jumpThreshold = with(LocalDensity.current) { 56.dp.toPx() }
         val jumpEnabled by remember { derivedStateOf { scrollState.firstVisibleItemIndex != 0 || scrollState.firstVisibleItemScrollOffset > jumpThreshold } }
-        JumpToBottom(enabled = jumpEnabled, unseen = unseen, onClicked = { scope.launch { scrollState.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomCenter))
+        JumpToBottom(enabled = jumpEnabled, unseen = unseen, onClicked = { scope.launch { scrollState.animateScrollToItem(0) } }, modifier = Modifier.align(Alignment.BottomEnd))   // 0926 右下角圆钮
     }
 }
 
@@ -477,23 +525,12 @@ private fun SystemPill(text: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, showTime: Boolean, read: Boolean, foldThinking: Boolean = false,
+private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, showTime: Boolean, read: Boolean,
                        loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
     val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
-    // 思考类型消息：独立气泡，半折叠预览（像 TG 的 expandable blockquote）
-    if (m.msgType == "thinking") {
-        Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-            AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
-            Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
-                if (foldThinking) ThinkingFold(m.text) else ThinkingPreview(m.text)
-                if (showTime) TimeUnder(m.timeLabel(), false, false)
-                Spacer(Modifier.height(3.dp))
-            }
-        }
-        return
-    }
+    // 0926 思考行/工具行不走这里：Messages 里并成组交给 AuxRow
     Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = if (isUserMe) Arrangement.End else Arrangement.Start) {
         if (!isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
         Column(Modifier.weight(1f, fill = false).padding(if (isUserMe) 0.dp else 0.dp), horizontalAlignment = if (isUserMe) Alignment.End else Alignment.Start) {
@@ -587,13 +624,13 @@ internal fun ThinkingPreview(thinking: String) {
 }
 
 @Composable
-private fun ThinkingFold(thinking: String) {
+private fun ThinkingFold(thinking: String, label: String = "思考") {   // 0926 label：独立思考组传「思考了 N 秒」；气泡里附带的 thinking 仍是「思考」
     var open by remember { mutableStateOf(false) }
     // 0915 她的图：收起时箭头朝右 展开朝下（"点一下左边箭头可以展开"）
     // 0915 她：点的时候出灰框——那是点击水波纹(indication) 关掉
     Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
-        Text("思考", fontSize = 10.sp, color = LocalSkin.current.muted)
+        Text(label, fontSize = 10.sp, color = LocalSkin.current.muted)
     }
     // 0915 她点的：思考链常是英文 展开后可以点"翻译"（服务端 MiniMax）译文接在下面
     var tr by remember(thinking) { mutableStateOf<String?>(null) }
@@ -614,6 +651,47 @@ private fun ThinkingFold(thinking: String) {
                 },
             )
             tr?.let { Text(it, fontSize = 13.sp, color = LocalSkin.current.muted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
+        }
+    }
+}
+
+/** 0926 思考组 / 工具组：占原来思考行的位置（头像列 + 280 宽），样式同一档（小、灰、无气泡） */
+@Composable
+private fun AuxRow(row: ChatRow.Group, isLastMessageByAuthor: Boolean, showTime: Boolean, loader: ImageLoader) {
+    val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
+    Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        AvatarOrSpace(isLastMessageByAuthor, MaterialTheme.colorScheme.tertiary, isChen = true, url = "", loader = loader)
+        Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
+            if (row.type == "thinking") {
+                // 秒数 = 各段相加；一段都没有就只写「思考」。点开把各段按时间顺序接起来 段间空一行（翻译按钮在 ThinkingFold 里 照旧）
+                val secs = row.items.mapNotNull { it.secs }.takeIf { it.isNotEmpty() }?.sum()
+                ThinkingFold(row.items.joinToString("\n\n") { it.text }, label = if (secs != null) "思考了 $secs 秒" else "思考")
+            } else ToolFold(row.items)
+            if (showTime) TimeUnder(row.newest.timeLabel(), false, false)
+            Spacer(Modifier.height(3.dp))
+        }
+    }
+}
+
+/** 0926 工具行：一条就「🔧 读 memory.md」；连着的并成「🔧 跑了 N 件事：a / b / c…」（只列前三件）。点开展开成清单 一行一件 后面跟工具名小字 */
+@Composable
+private fun ToolFold(items: List<Msg>) {
+    var open by remember { mutableStateOf(false) }
+    val muted = LocalSkin.current.muted
+    val head = if (items.size == 1) items[0].text
+        else "跑了 ${items.size} 件事：" + items.take(3).joinToString(" / ") { it.text } + (if (items.size > 3) "…" else "")
+    Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("🔧", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+        Text(head, fontSize = 10.sp, color = muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            items.forEach { t ->
+                Row(Modifier.padding(vertical = 1.dp)) {
+                    Text(t.text, fontSize = 13.sp, color = muted, lineHeight = 17.sp, modifier = Modifier.alignByBaseline().weight(1f, fill = false))
+                    t.tool?.let { Text(it, fontSize = 10.sp, color = muted.copy(alpha = 0.7f), modifier = Modifier.alignByBaseline().padding(start = 6.dp)) }
+                }
+            }
         }
     }
 }
@@ -867,17 +945,25 @@ private fun DayHeader(dayString: String) {
     }
 }
 
+/** 0926 她点的：「回到底部」从中下方带字的宽胶囊改成右下角 40dp 白色圆钮（贴右 16dp、输入栏上方 12dp）只放向下箭头；
+ *  翻旧消息时新到的条数（0920）改挂在圆钮右上角的红色角标。出现/消失条件和点击行为照旧 */
 @Composable
 private fun JumpToBottom(enabled: Boolean, unseen: Int = 0, onClicked: () -> Unit, modifier: Modifier = Modifier) {
     if (!enabled) return
-    ExtendedFloatingActionButton(
-        icon = { Icon(painterResource(R.drawable.ic_arrow_downward), contentDescription = null, modifier = Modifier.height(18.dp)) },
-        text = { Text(if (unseen > 0) "$unseen 条新消息" else "回到底部") },   // 0920 她翻旧消息时 新到的条数
-        onClick = onClicked,
-        containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.primary,
-        modifier = modifier.offset(y = (-32).dp).height(36.dp),
-    )
+    Box(modifier.padding(end = 16.dp, bottom = 12.dp)) {
+        Box(
+            Modifier.size(40.dp)
+                .shadow(4.dp, CircleShape, clip = false, ambientColor = Color(0x22000000), spotColor = Color(0x33000000))
+                .clip(CircleShape).background(Color.White)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClicked),
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Default.KeyboardArrowDown, contentDescription = "回到底部", tint = LocalSkin.current.ink, modifier = Modifier.size(26.dp)) }
+        if (unseen > 0) Box(
+            Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp).sizeIn(minWidth = 18.dp, minHeight = 18.dp)
+                .background(Color(0xFFE53935), CircleShape).padding(horizontal = 5.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text(if (unseen > 99) "99+" else "$unseen", color = Color.White, fontSize = 10.sp, lineHeight = 10.sp) }
+    }
 }
 
 @Composable

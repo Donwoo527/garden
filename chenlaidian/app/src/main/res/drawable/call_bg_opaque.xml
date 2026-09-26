@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0926 通话页深色底的兜底版：Android 11 及以下没有窗口模糊（blurBehind 是 12+），半透明会把底下清晰的聊天页透出来，
+     所以低版本直接铺不透明的深色径向渐变。12+ 用 call_bg（半透明 + 模糊 = 磨砂玻璃） -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient android:type="radial" android:gradientRadius="600dp"
+        android:centerX="0.5" android:centerY="0.35"
+        android:startColor="#FF2C2C33" android:endColor="#FF121215" />
+</shape>

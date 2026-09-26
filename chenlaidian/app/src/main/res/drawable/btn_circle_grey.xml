@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 0926 通话页免提钮"开着"的样子：白底微微变灰（参考微信），关了换回 btn_circle_white -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="#CFCBC5" />
+</shape>
