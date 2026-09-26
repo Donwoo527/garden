@@ -308,8 +308,11 @@ class ChenService : Service() {
             "stt" -> lastText.postValue("你：" + o.optString("text"))
             "reply", "audio_reply" -> {
                 lastText.postValue("辰：" + o.optString("text"))
-                val url = o.optString("audio_url", "")
-                if (inCall && url.isNotEmpty()) audio.enqueueReply(url)
+                // 0926 她截图的 "Invalid URL port: 8200null"：配音超时时服务端发 audio_url: null，
+                // optString 把 JSON null 读成字符串 "null" 拼进了地址。空/null/不是路径的一律不下载。
+                val url = if (o.isNull("audio_url")) "" else o.optString("audio_url", "")
+                if (inCall && url.startsWith("/")) audio.enqueueReply(url)
+                else if (inCall && o.optBoolean("tts_failed", false)) setStatus("这条没配上音，字在上面")
             }
             "incoming_call" -> showIncomingCall(o.optString("text", "辰打电话来了"))
             "hangup" -> endCall("已挂断")

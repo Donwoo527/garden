@@ -131,7 +131,7 @@ fun TerminalScreen() {
                 androidx.compose.material3.DropdownMenu(expanded = showSwitch, onDismissRequest = { showSwitch = false }) {
                     // 0.43 她的全套菜单(照网页版+她点名的三个 不含Haiku) id全部核实过
                     listOf(
-                        "claude-fable-5-1", "claude-fable-5", "claude-opus-5", "claude-opus-4-8",
+                        "claude-fable-5-1", "claude-opus-5-5", "claude-fable-5", "claude-opus-5", "claude-opus-4-8",  // 0926 她点的：加 opus-5-5
                         "claude-opus-4-6[1m]", "claude-sonnet-5", "claude-sonnet-4-6",
                         "claude-opus-4-5", "claude-sonnet-4-5",
                     ).forEach { m ->
