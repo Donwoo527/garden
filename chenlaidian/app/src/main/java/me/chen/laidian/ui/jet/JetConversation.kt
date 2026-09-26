@@ -8,7 +8,13 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -51,6 +57,12 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -88,6 +100,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -105,6 +118,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -626,36 +640,35 @@ internal fun ThinkingPreview(thinking: String) {
 @Composable
 private fun ThinkingFold(thinking: String, label: String = "思考") {   // 0926 label：独立思考组传「思考了 N 秒」；气泡里附带的 thinking 仍是「思考」
     var open by remember { mutableStateOf(false) }
-    // 0915 她的图：收起时箭头朝右 展开朝下（"点一下左边箭头可以展开"）
-    // 0915 她：点的时候出灰框——那是点击水波纹(indication) 关掉
-    Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
-        Text(label, fontSize = 10.sp, color = LocalSkin.current.muted)
-    }
-    // 0915 她点的：思考链常是英文 展开后可以点"翻译"（服务端 MiniMax）译文接在下面
-    var tr by remember(thinking) { mutableStateOf<String?>(null) }
+    var tr by remember(thinking) { mutableStateOf<String?>(null) }   // 0926 她改：翻译结果缓存——来回切换不重新请求 ChatApi.translate
+    var showTr by remember(thinking) { mutableStateOf(false) }       // 0926 她改：正文是"替换"不是"追加"；这个记当前显示原文还是译文
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            Text(thinking, fontSize = 13.sp, color = LocalSkin.current.muted, lineHeight = 17.sp)
-            Text(
-                if (tr == null) "翻译" else "收起翻译", fontSize = 12.sp, color = me.chen.laidian.ui.LocalSkin.current.accent,
-                modifier = Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                    if (tr != null) tr = null
-                    else scope.launch {
-                        ChatApi.lastError = null
-                        val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, thinking) }
-                        if (t != null) tr = t else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
-                    }
-                },
-            )
-            tr?.let { Text(it, fontSize = 13.sp, color = LocalSkin.current.muted, lineHeight = 18.sp, modifier = Modifier.padding(top = 4.dp)) }
-        }
+    val muted = LocalSkin.current.muted
+    FoldCard(
+        open = open, onToggle = { open = !open },
+        // Outlined.Psychology 在 material-icons-extended 才有，app/build.gradle.kts 没加这个依赖，退回原来的 emoji
+        leading = { Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) { Text("💭", fontSize = 15.sp) } },
+        headText = label, headMaxWidth = 190.dp,
+    ) {
+        Text(if (showTr) tr ?: thinking else thinking, fontSize = 13.sp, color = muted, lineHeight = 18.sp)
+        // 0926 她改：按钮挪到卡片底部左侧；点「翻译」正文直接换成中文（不再底下追加一段）按钮变「原文」；再点切回去；译文缓存过的不重新请求
+        Text(
+            if (showTr) "原文" else "翻译", fontSize = 12.sp, color = LocalSkin.current.accent,
+            modifier = Modifier.padding(top = 6.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                if (showTr) showTr = false
+                else if (tr != null) showTr = true
+                else scope.launch {
+                    ChatApi.lastError = null
+                    val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, thinking) }
+                    if (t != null) { tr = t; showTr = true } else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                }
+            },
+        )
     }
 }
 
-/** 0926 思考组 / 工具组：占原来思考行的位置（头像列 + 280 宽），样式同一档（小、灰、无气泡） */
+/** 0926 思考组 / 工具组：占原来思考行的位置（头像列 + 280 宽）；卡片样式见 FoldCard */
 @Composable
 private fun AuxRow(row: ChatRow.Group, isLastMessageByAuthor: Boolean, showTime: Boolean, loader: ImageLoader) {
     val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
@@ -663,35 +676,90 @@ private fun AuxRow(row: ChatRow.Group, isLastMessageByAuthor: Boolean, showTime:
         AvatarOrSpace(isLastMessageByAuthor, MaterialTheme.colorScheme.tertiary, isChen = true, url = "", loader = loader)
         Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
             if (row.type == "thinking") {
-                // 秒数 = 各段相加；一段都没有就只写「思考」。点开把各段按时间顺序接起来 段间空一行（翻译按钮在 ThinkingFold 里 照旧）
+                // 秒数 = 各段相加，1位小数；一段都没有就只写「思考」。点开把各段按时间顺序接起来 段间空一行（翻译按钮在 ThinkingFold 里 照旧）
                 val secs = row.items.mapNotNull { it.secs }.takeIf { it.isNotEmpty() }?.sum()
-                ThinkingFold(row.items.joinToString("\n\n") { it.text }, label = if (secs != null) "思考了 $secs 秒" else "思考")
+                val label = if (secs != null) "思考了 " + String.format(Locale.US, "%.1f", secs) + " 秒" else "思考"
+                ThinkingFold(row.items.joinToString("\n\n") { it.text }, label = label)
+                if (showTime) TimeUnder(row.newest.timeLabel(), false, false)   // 工具卡片头一行自己带时间了(FoldCard 的 time) 这里只补思考卡片缺的
             } else ToolFold(row.items)
-            if (showTime) TimeUnder(row.newest.timeLabel(), false, false)
             Spacer(Modifier.height(3.dp))
         }
     }
 }
 
-/** 0926 工具行：一条就「🔧 读 memory.md」；连着的并成「🔧 跑了 N 件事：a / b / c…」（只列前三件）。点开展开成清单 一行一件 后面跟工具名小字 */
+/** 0926 工具行：一条「做了件事 · 读 memory.md」；连着的并成「做了 N 件事」。点开展开成清单 一行一件：图标 + 描述 + 这条自己的时间 */
 @Composable
 private fun ToolFold(items: List<Msg>) {
     var open by remember { mutableStateOf(false) }
     val muted = LocalSkin.current.muted
-    val head = if (items.size == 1) items[0].text
-        else "跑了 ${items.size} 件事：" + items.take(3).joinToString(" / ") { it.text } + (if (items.size > 3) "…" else "")
-    Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("🔧", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
-        Text(head, fontSize = 10.sp, color = muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-    }
-    if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
-            items.forEach { t ->
-                Row(Modifier.padding(vertical = 1.dp)) {
-                    Text(t.text, fontSize = 13.sp, color = muted, lineHeight = 17.sp, modifier = Modifier.alignByBaseline().weight(1f, fill = false))
-                    t.tool?.let { Text(it, fontSize = 10.sp, color = muted.copy(alpha = 0.7f), modifier = Modifier.alignByBaseline().padding(start = 6.dp)) }
-                }
+    val head = if (items.size == 1) "做了件事 · " + items[0].text else "做了 ${items.size} 件事"
+    // 组里工具都一样就用那个图标，混着就用通用图标；items 按时间从早到晚(ChatRow.Group 的约定)，最后一条=最新
+    val headIcon = items.map { it.tool }.distinct().singleOrNull()?.let { toolIcon(it) } ?: toolIcon(null)
+    FoldCard(
+        open = open, onToggle = { open = !open },
+        leading = { Icon(headIcon, contentDescription = null, tint = muted, modifier = Modifier.size(20.dp)) },
+        headText = head, headMaxWidth = 155.dp, time = items.last().timeLabel(),
+    ) {
+        items.forEach { t ->
+            Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(toolIcon(t.tool), contentDescription = null, tint = muted, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(t.text, fontSize = 13.sp, color = muted, lineHeight = 17.sp, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(6.dp))
+                Text(t.timeLabel(), fontSize = 11.sp, color = muted.copy(alpha = 0.7f))
             }
+        }
+    }
+}
+
+/** 0926 工具图标映射：material-icons-extended 没进依赖（app/build.gradle.kts 只有核心 material3/ui）。
+ *  实测 ~/.gradle 缓存里的 material-icons-core-1.6.8.jar，核心 Outlined 集合里没有 Description/Terminal/Psychology
+ *  （原说明里给的备选 Description 其实也不在，是查实后才发现的）。Read 本来想用 List 更贴切，但 Icons.Outlined.List
+ *  这个名字会跟 kotlin.collections.List（这个文件到处用它当类型）撞名，没法编译验证 import 别名到底稳不稳，干脆换 Info 躲开这整类风险。
+ *  只用查到确认存在的：Build/Edit/Search/Send/Person/Info；Bash 想要的 Terminal 不在核心里，退成 Build；未识别的工具也是 Build */
+private fun toolIcon(tool: String?) = when {
+    tool == "Edit" || tool == "Write" || tool == "MultiEdit" -> Icons.Outlined.Edit
+    tool == "Read" -> Icons.Outlined.Info
+    tool == "Grep" || tool == "Glob" -> Icons.Outlined.Search
+    tool == "Agent" -> Icons.Outlined.Person
+    tool != null && (tool.startsWith("mcp__plugin_telegram") || tool.startsWith("mcp__plugin_discord")) -> Icons.Outlined.Send
+    else -> Icons.Outlined.Build   // Bash / null / 其它没列的工具
+}
+
+/** 0926 思考行/工具行共用外壳：卡片颜色圆角走皮肤（raised()——换皮跟着变，不搞毛玻璃，跟辰气泡一样是"这一套皮肤的卡片质感"）。
+ *  头一行：左图标 + 文字(单行超长省略号) + 右侧(可选时间) + 展开箭头(展开转180°变朝上)；点开在同一张卡片内向下展开，不是另起一张卡片 */
+@Composable
+private fun FoldCard(
+    open: Boolean, onToggle: () -> Unit,
+    leading: @Composable () -> Unit, headText: String, headMaxWidth: Dp, time: String? = null,
+    expanded: @Composable () -> Unit,
+) {
+    val muted = LocalSkin.current.muted
+    val rotation by animateFloatAsState(if (open) 180f else 0f, label = "foldArrow")
+    val cardWidth = Modifier.widthIn(min = 200.dp, max = 280.dp)   // 宽度跟辰的气泡一致：最大 280 内容短就包内容 最小 200
+    Column(Modifier.padding(bottom = 4.dp).raised()) {
+        Row(
+            cardWidth.height(44.dp).padding(horizontal = 14.dp)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onToggle),
+            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                leading()
+                Spacer(Modifier.width(12.dp))
+                Text(headText, fontSize = 14.sp, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = headMaxWidth))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 6.dp)) {
+                time?.let { Text(it, fontSize = 11.sp, color = muted, modifier = Modifier.padding(end = 4.dp)) }
+                Icon(Icons.Default.KeyboardArrowDown, contentDescription = if (open) "收起" else "展开", tint = muted,
+                    modifier = Modifier.size(18.dp).rotate(rotation))
+            }
+        }
+        AnimatedVisibility(
+            visible = open,
+            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+        ) {
+            Column(cardWidth.padding(start = 14.dp, end = 14.dp, top = 2.dp, bottom = 10.dp)) { expanded() }
         }
     }
 }
