@@ -440,12 +440,14 @@ private fun Messages(messages: List<Msg>, all: List<Msg>, readIds: Set<String>, 
                 val isLastMessageByAuthor = older?.who != m.who       // 这一串里最早的一条 → 显示头像和名字
                 // 0915 她：同一个人同一分钟连发的 只在最后一条下面标时间
                 val showTime = newer == null || newer.who != m.who || newer.timeLabel() != m.timeLabel()
+                // 0926 她定的：思考条后面（时间上的下一条）紧跟着我的气泡 → 折成「💭 思考」一行；前后都没说话的独立思考 → 留三行预览
+                val foldThinking = m.msgType == "thinking" && newer != null && newer.isChen && newer.msgType != "thinking"
                 item(key = m.id) {
                     // 0920 服务端给带 reply_to 的消息附了引用快照 quote{id,who,text}：被引用那条不在本地列表里（老消息/没翻到）就用快照拼一条只够引用框渲染的 Msg 兜底（引用框只读 id/isChen/text/msgType）
                     val quoted = all.firstOrNull { it.id == m.replyTo } ?: m.quoteText?.let { Msg(id = m.replyTo ?: "", who = m.quoteWho ?: "chen", msgType = "text", text = it, media = null, voice = null, replyTo = null, thinking = null, ts = 0.0) }
                     if (m.who == "system") SystemPill(m.text)
                     else MessageRow(m, quoted, isUserMe = !m.isChen, isFirstMessageByAuthor, isLastMessageByAuthor, showTime = showTime,
-                        read = m.id in readIds, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onForwardImage = onForwardImage, onFav = onFav, onCopy = onCopy)
+                        read = m.id in readIds, foldThinking = foldThinking, loader = loader, onOpenImage = onOpenImage, onQuote = onQuote, onForward = onForward, onForwardImage = onForwardImage, onFav = onFav, onCopy = onCopy)
                 }
                 val day = m.dayLabel()
                 if (older == null || older.dayLabel() != day) item(key = "day-$day-${m.id}") { DayHeader(day) }
@@ -475,7 +477,7 @@ private fun SystemPill(text: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, showTime: Boolean, read: Boolean,
+private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageByAuthor: Boolean, isLastMessageByAuthor: Boolean, showTime: Boolean, read: Boolean, foldThinking: Boolean = false,
                        loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
@@ -485,7 +487,7 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
         Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
             AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
             Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
-                ThinkingFold(m.text)  // 0926 她点的：独立思考条默认只留"💭 思考"一行 点开才展开（原 ThinkingPreview 三行预览）
+                if (foldThinking) ThinkingFold(m.text) else ThinkingPreview(m.text)
                 if (showTime) TimeUnder(m.timeLabel(), false, false)
                 Spacer(Modifier.height(3.dp))
             }
