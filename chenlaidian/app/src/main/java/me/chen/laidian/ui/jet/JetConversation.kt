@@ -638,33 +638,34 @@ internal fun ThinkingPreview(thinking: String) {
 }
 
 @Composable
-private fun ThinkingFold(thinking: String, label: String = "思考") {   // 0926 label：独立思考组传「思考了 N 秒」；气泡里附带的 thinking 仍是「思考」
+private fun ThinkingFold(thinking: String, label: String = "思考") {
+    // 0926 22:46 她定的：思考链折叠时不要框，跟以前一样小灰字；只有工具行才画框
     var open by remember { mutableStateOf(false) }
-    var tr by remember(thinking) { mutableStateOf<String?>(null) }   // 0926 她改：翻译结果缓存——来回切换不重新请求 ChatApi.translate
-    var showTr by remember(thinking) { mutableStateOf(false) }       // 0926 她改：正文是"替换"不是"追加"；这个记当前显示原文还是译文
+    var tr by remember(thinking) { mutableStateOf<String?>(null) }
+    var showTr by remember(thinking) { mutableStateOf(false) }
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val muted = LocalSkin.current.muted
-    FoldCard(
-        open = open, onToggle = { open = !open },
-        // Outlined.Psychology 在 material-icons-extended 才有，app/build.gradle.kts 没加这个依赖，退回原来的 emoji
-        leading = { Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) { Text("💭", fontSize = 15.sp) } },
-        headText = label, headMaxWidth = 190.dp,
-    ) {
-        Text(if (showTr) tr ?: thinking else thinking, fontSize = 13.sp, color = muted, lineHeight = 18.sp)
-        // 0926 她改：按钮挪到卡片底部左侧；点「翻译」正文直接换成中文（不再底下追加一段）按钮变「原文」；再点切回去；译文缓存过的不重新请求
-        Text(
-            if (showTr) "原文" else "翻译", fontSize = 12.sp, color = LocalSkin.current.accent,
-            modifier = Modifier.padding(top = 6.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                if (showTr) showTr = false
-                else if (tr != null) showTr = true
-                else scope.launch {
-                    ChatApi.lastError = null
-                    val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, thinking) }
-                    if (t != null) { tr = t; showTr = true } else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
-                }
-            },
-        )
+    Row(Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { open = !open }.padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("💭", fontSize = 10.sp, modifier = Modifier.padding(end = 2.dp))
+        Text(label, fontSize = 10.sp, color = muted)
+    }
+    if (open) Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f), modifier = Modifier.padding(bottom = 6.dp)) {
+        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text(if (showTr) tr ?: thinking else thinking, fontSize = 13.sp, color = muted, lineHeight = 17.sp)
+            Text(
+                if (showTr) "原文" else "翻译", fontSize = 12.sp, color = LocalSkin.current.accent,
+                modifier = Modifier.padding(top = 4.dp).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                    if (showTr) showTr = false
+                    else if (tr != null) showTr = true
+                    else scope.launch {
+                        ChatApi.lastError = null
+                        val t = withContext(Dispatchers.IO) { ChatApi.translate(ctx, thinking) }
+                        if (t != null) { tr = t; showTr = true } else Toast.makeText(ctx, "翻译失败：" + (ChatApi.lastError ?: ""), Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -737,7 +738,8 @@ private fun FoldCard(
     val muted = LocalSkin.current.muted
     val rotation by animateFloatAsState(if (open) 180f else 0f, label = "foldArrow")
     val cardWidth = Modifier.widthIn(min = 200.dp, max = 280.dp)   // 宽度跟辰的气泡一致：最大 280 内容短就包内容 最小 200
-    Column(Modifier.padding(bottom = 4.dp).raised()) {
+    // 0926 22:48 她定的：工具框不要凸起效果 就平面——去掉 raised()，用浅色底+圆角+细边
+    Column(Modifier.padding(bottom = 4.dp).clip(RoundedCornerShape(22.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(22.dp))) {
         Row(
             cardWidth.height(44.dp).padding(horizontal = 14.dp)
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onToggle),
