@@ -40,6 +40,7 @@ class ChenService : Service() {
         const val ACTION_ACCEPT = "me.chen.laidian.ACCEPT"
         const val ACTION_HANGUP = "me.chen.laidian.HANGUP"
         const val ACTION_SPEAKER = "me.chen.laidian.SPEAKER"
+        const val ACTION_MUTE = "me.chen.laidian.MUTE"      // 0.106 通话静音
         const val ACTION_REGAIN = "me.chen.laidian.REGAIN"   // 0.94 回到通话页：把音频焦点要回来
 
         const val CH_SERVICE = "chen_service"
@@ -59,6 +60,7 @@ class ChenService : Service() {
         /** 空闲 / 响铃中 / 通话中 / 已挂断 */
         val callState = MutableLiveData("空闲")
         val speakerOn = MutableLiveData(false)
+        val micMuted = MutableLiveData(false)   // 0.106 通话页静音钮的状态
         @Volatile var running = false
     }
 
@@ -243,6 +245,10 @@ class ChenService : Service() {
                 if (inCall) { audio.setSpeaker(!audio.isSpeaker()); speakerOn.postValue(audio.isSpeaker()) }
                 return START_STICKY
             }
+            ACTION_MUTE -> {
+                if (inCall) { audio.userMuted = !audio.userMuted; micMuted.postValue(audio.userMuted) }
+                return START_STICKY
+            }
             ACTION_REGAIN -> { if (inCall) audio.regainFocus(); return START_STICKY }
         }
         running = true
@@ -415,7 +421,9 @@ class ChenService : Service() {
         callStartTs = System.currentTimeMillis()   // 0.34 悬浮小窗的时长起点
         callState.postValue("通话中")
         speakerOn.postValue(false)
+        micMuted.postValue(false)
         audio.startCall()
+        audio.userMuted = false
     }
 
     private fun endCall(finalState: String) {

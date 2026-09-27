@@ -48,6 +48,8 @@ class AudioEngine(
     @Volatile private var userSpeaking = false
     // 0.45 音频焦点：真电话/别的app抢走声音时暂停 抢完自动恢复（0911她通话被打断只能重拨的坑）
     @Volatile private var interrupted = false
+    // 0.106 她点的通话静音键（0927 地铁上整节车厢都被收进来）：开着时麦克风帧一律丢掉 一个字不传；按下那一刻她说到一半的先发出去
+    @Volatile var userMuted = false
     private var focusRequest: android.media.AudioFocusRequest? = null
     // 0.94 永久失焦：小红书/视频这类 app 放带声音的东西 = AUDIOFOCUS_LOSS（不是 TRANSIENT）。
     // 系统对永久失焦不会再回调 GAIN——以前 interrupted 就一直 true，整通电话聋掉，只能挂了重打
@@ -153,6 +155,7 @@ class AudioEngine(
         focusRequest?.let { try { audioManager.abandonAudioFocusRequest(it) } catch (_: Exception) {} }
         focusRequest = null
         interrupted = false
+        userMuted = false
         if (android.os.Build.VERSION.SDK_INT >= 31) audioManager.clearCommunicationDevice()
         audioManager.mode = AudioManager.MODE_NORMAL
         speaker = false
@@ -214,10 +217,10 @@ class AudioEngine(
                 while (capturing) {
                     val n = rec.read(frame, 0, FRAME_BYTES)
                     if (n <= 0) continue
-                    if (muted || interrupted) { // 辰在说 / 0.45 被真电话打断：丢帧，重置状态
+                    if (muted || interrupted || userMuted) { // 辰在说 / 0.45 被真电话打断 / 0.106 她按了静音：丢帧，重置状态
                         // 0.96：辰开口那一下她那句正说到一半——先把已说的发出去，不再整句扔掉
                         // （以前这里直接 reset：0925 夜她"说了一大堆好像没识别出来"。被真电话打断的不发）
-                        if (muted && !interrupted && inSpeech && speechMs >= MIN_SPEECH_MS) {
+                        if ((muted || userMuted) && !interrupted && inSpeech && speechMs >= MIN_SPEECH_MS) {
                             val b64 = Base64.encodeToString(utter.toByteArray(), Base64.NO_WRAP)
                             send(JSONObject().put("type", "audio").put("audio", b64).put("format", "pcm16k"))
                         }

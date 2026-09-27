@@ -79,6 +79,9 @@ class CallActivity : AppCompatActivity() {
         val hangup = findViewById<View>(R.id.btnHangup)
         val speaker = findViewById<View>(R.id.btnSpeaker)
         val speakerWrap = findViewById<View>(R.id.speakerWrap)
+        // 0.106 她点的静音钮（微信那排：静音/挂断/免提）：静音时灰底+划掉的麦克风
+        val mic = findViewById<android.widget.ImageButton>(R.id.btnMic)
+        val micWrap = findViewById<View>(R.id.micWrap)
         // 0.32 字幕改累积历史：追加显示可回翻；在底部时新句自动滚下来，手动上翻时不抢
         val cap = findViewById<TextView>(R.id.callLast)
         val capScroll = findViewById<android.widget.ScrollView>(R.id.capScroll)
@@ -91,13 +94,18 @@ class CallActivity : AppCompatActivity() {
         }
         // 0926 免提开着：底色微微变灰（她给的参考：微信那种）；标签固定「免提」
         ChenService.speakerOn.observe(this) { speaker.setBackgroundResource(if (it) R.drawable.btn_circle_grey else R.drawable.btn_circle_white) }
+        ChenService.micMuted.observe(this) {
+            mic.setBackgroundResource(if (it) R.drawable.btn_circle_grey else R.drawable.btn_circle_white)
+            mic.setImageResource(if (it) R.drawable.ic_call_mic_off else R.drawable.ic_call_mic)
+        }
         ChenService.callState.observe(this) {
             if (it == "已挂断") { stopRinging(); beepEnd(); finish() }
-            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speakerWrap.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
+            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speakerWrap.visibility = View.VISIBLE; micWrap.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
         }
         // 0.41 听着呢/翻译中这类状态显示在"通话中"下面 不再刷进字幕区
         ChenService.sttStatus.observe(this) { if (ChenService.callState.value == "通话中") state.text = it ?: "" }
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
+        mic.setOnClickListener { svc(ChenService.ACTION_MUTE) }
         // 0.35 她点名的可见缩小按钮：点了回上一页 通话不断 浮窗由onDestroy兜底弹出
         findViewById<TextView>(R.id.btnMinimize).setOnClickListener { finish() }
 

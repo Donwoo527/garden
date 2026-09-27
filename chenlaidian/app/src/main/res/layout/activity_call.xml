@@ -36,11 +36,21 @@
     </ScrollView>
 
     <!-- 0926 她点的（参考微信通话页）：底部一排 64dp 圆钮等距居中，下面 12sp 白色小字标签。
-         通话中 = [挂断 红底白听筒][免提 白底深喇叭]；响铃中 = [挂断][接听]。app 没有用户静音功能，所以没做麦克风键。
+         通话中 = [静音][挂断 红底白听筒][免提 白底深喇叭]；响铃中 = [挂断][接听]。0.106 她在地铁上说要开麦闭麦 → 加了静音钮。
          原来紫色的「免提：关」胶囊是裸 <Button> 被 Material3 主题偷换成 MaterialButton 用主题色 tint 染的（0.39 挂断/接听同款问题），这里全用 AppCompat 控件 -->
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="horizontal" android:gravity="center" android:layout_marginTop="14dp"
         android:layout_marginBottom="8dp">
+
+        <LinearLayout android:id="@+id/micWrap" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:orientation="vertical" android:gravity="center" android:visibility="gone">
+            <androidx.appcompat.widget.AppCompatImageButton android:id="@+id/btnMic" android:layout_width="64dp" android:layout_height="64dp"
+                android:background="@drawable/btn_circle_white"
+                android:src="@drawable/ic_call_mic" android:scaleType="center"
+                android:contentDescription="静音" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:text="静音" android:textSize="12sp" android:textColor="#B3FFFFFF" android:layout_marginTop="6dp" />
+        </LinearLayout>
 
         <LinearLayout android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
             android:orientation="vertical" android:gravity="center">
