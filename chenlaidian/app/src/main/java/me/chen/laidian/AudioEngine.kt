@@ -33,7 +33,13 @@ class AudioEngine(
         const val SAMPLE_RATE = 16000
         private const val FRAME_MS = 20
         private const val FRAME_BYTES = SAMPLE_RATE * 2 * FRAME_MS / 1000      // 640
-        private const val SPEECH_RMS = 700.0        // 判"在说话"的能量门槛（int16 尺度），之后按实机调
+        // 0.107 门槛改自适应（0927 夜她"认真说的话一句没录进去 买东西的杂音全在"：实测她对我说话九成的帧在 870 以下、
+        // 店里别人 1400~2900，写死 700 等于只收大嗓门）：门槛 = 底噪 × 3，夹在 300~900 之间；底噪只在没人说话时慢慢跟
+        private const val SPEECH_RMS_MIN = 300.0
+        private const val SPEECH_RMS_MAX = 900.0
+        private const val NOISE_MULT = 3.0
+        // 0.107 插话：戴耳机时我说话不掐她的麦；她连续说满这么久，我就闭嘴
+        private const val BARGE_IN_MS = 300
         private const val MIN_SPEECH_MS = 350       // 短于这个的当噪音丢掉
         private const val END_SILENCE_MS = 1500      // 说完停顿多久算一句（0908 实测 700 会把她的话切碎）
         private const val MAX_UTTERANCE_MS = 15000  // 一句最长
@@ -50,6 +56,12 @@ class AudioEngine(
     @Volatile private var interrupted = false
     // 0.106 她点的通话静音键（0927 地铁上整节车厢都被收进来）：开着时麦克风帧一律丢掉 一个字不传；按下那一刻她说到一半的先发出去
     @Volatile var userMuted = false
+    // 0.107：本段回复开播时是不是走耳机（耳机=我的声音漏不进麦 可以边放边收）；当前这段的完成锁 插话时用来叫醒放音线程
+    @Volatile private var bargeInOk = false
+    @Volatile private var currentDone: Object? = null
+    private var noiseRms = 150.0
+    // 0.107 诊断：当前录音实际走的麦（AudioRecord.routedDevice 才是真的输入设备 不是猜的路由）
+    @Volatile private var currentRec: AudioRecord? = null
     private var focusRequest: android.media.AudioFocusRequest? = null
     // 0.94 永久失焦：小红书/视频这类 app 放带声音的东西 = AUDIOFOCUS_LOSS（不是 TRANSIENT）。
     // 系统对永久失焦不会再回调 GAIN——以前 interrupted 就一直 true，整通电话聋掉，只能挂了重打
@@ -189,6 +201,37 @@ class AudioEngine(
     }
     fun isSpeaker() = speaker
 
+    /** 0.107：现在的通话声音是不是走耳机（蓝牙/有线/USB）。走耳机时我的声音不会漏进她的麦，可以边放边收。 */
+    private fun headsetRouted(): Boolean {
+        if (speaker) return false
+        return if (android.os.Build.VERSION.SDK_INT >= 31) {
+            val t = audioManager.communicationDevice?.type
+            t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO || t == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                t == android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.isBluetoothScoOn || audioManager.isWiredHeadsetOn
+        }
+    }
+
+    /** 0.107 诊断：录音实际走的麦 */
+    private fun micLabel(): String = when (currentRec?.routedDevice?.type) {
+        android.media.AudioDeviceInfo.TYPE_BUILTIN_MIC -> "手机麦"
+        android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET -> "蓝牙耳机麦"
+        android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET -> "有线耳机麦"
+        android.media.AudioDeviceInfo.TYPE_USB_HEADSET, android.media.AudioDeviceInfo.TYPE_USB_DEVICE -> "USB耳机麦"
+        null -> "麦未知"
+        else -> "麦${currentRec?.routedDevice?.type}"
+    }
+
+    /** 0.107 插话：她开口了，停掉正在放的这段、清掉排队的，把话筒让给她。 */
+    private fun interruptPlayback() {
+        playQueue.clear()
+        try { player?.stop() } catch (_: Exception) {}
+        currentDone?.let { synchronized(it) { it.notifyAll() } }
+    }
+
     // ---------- 录音 ----------
 
     @SuppressLint("MissingPermission")
@@ -207,17 +250,20 @@ class AudioEngine(
             } catch (e: Exception) { onState("录音初始化失败：${e.message}"); capturing = false; return@Thread }
             if (rec.state != AudioRecord.STATE_INITIALIZED) { onState("录音设备不可用"); capturing = false; return@Thread }
             rec.startRecording()
-            onState("听着呢")
+            currentRec = rec
+            onState("听着呢 · " + micLabel())
             val frame = ByteArray(FRAME_BYTES)
             val utter = ByteArrayOutputStream()
             var speechMs = 0
             var silenceMs = 0
             var inSpeech = false
+            var peak = 0.0
+            var lastShow = 0L
             try {
                 while (capturing) {
                     val n = rec.read(frame, 0, FRAME_BYTES)
                     if (n <= 0) continue
-                    if (muted || interrupted || userMuted) { // 辰在说 / 0.45 被真电话打断 / 0.106 她按了静音：丢帧，重置状态
+                    if ((muted && !bargeInOk) || interrupted || userMuted) { // 辰在说(外放/听筒怕回声) / 0.45 被真电话打断 / 0.106 她按了静音：丢帧，重置状态
                         // 0.96：辰开口那一下她那句正说到一半——先把已说的发出去，不再整句扔掉
                         // （以前这里直接 reset：0925 夜她"说了一大堆好像没识别出来"。被真电话打断的不发）
                         if ((muted || userMuted) && !interrupted && inSpeech && speechMs >= MIN_SPEECH_MS) {
@@ -226,10 +272,21 @@ class AudioEngine(
                         }
                         utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; userSpeaking = false; continue
                     }
-                    val loud = rms(frame, n) > SPEECH_RMS
+                    val level = rms(frame, n)
+                    val gate = (noiseRms * NOISE_MULT).coerceIn(SPEECH_RMS_MIN, SPEECH_RMS_MAX)
+                    val loud = level > gate
+                    if (!inSpeech && !loud) noiseRms = noiseRms * 0.98 + level * 0.02   // 只在没人说话时跟底噪
+                    // 0.107 诊断：没在说话时每秒刷一次状态行「麦 · 这一秒最大音量 · 门槛」——她说话时数字没过门槛=麦的问题；过了却没出字=后面的问题
+                    if (level > peak) peak = level
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (!inSpeech && !muted && now - lastShow >= 1000) {   // 我在说话时不刷 免得盖掉「辰在说…」
+                        onState("听着呢 · ${micLabel()} · 音量${peak.toInt()}/门槛${gate.toInt()}")
+                        peak = 0.0; lastShow = now
+                    }
                     if (loud) {
                         if (!inSpeech) { inSpeech = true; userSpeaking = true; onState("你在说…") }
                         utter.write(frame, 0, n); speechMs += FRAME_MS; silenceMs = 0
+                        if (muted && bargeInOk && speechMs >= BARGE_IN_MS) interruptPlayback()   // 0.107 她开口了 我闭嘴
                     } else if (inSpeech) {
                         utter.write(frame, 0, n); silenceMs += FRAME_MS
                     }
@@ -245,6 +302,7 @@ class AudioEngine(
                 }
             } finally {
                 userSpeaking = false
+                currentRec = null
                 try { rec.stop() } catch (_: Exception) {}
                 rec.release()
             }
@@ -313,9 +371,11 @@ class AudioEngine(
         while (userSpeaking && capturing && android.os.SystemClock.elapsedRealtime() - t0 < WAIT_TURN_MS) {
             try { Thread.sleep(50) } catch (_: InterruptedException) { break }
         }
+        bargeInOk = headsetRouted()
         muted = true
         onState("辰在说…")
         val done = Object()
+        currentDone = done
         try {
             val mp = MediaPlayer().apply {
                 setAudioAttributes(
@@ -340,8 +400,9 @@ class AudioEngine(
             onState("播放失败：${e.message}")
         } finally {
             file.delete()
+            currentDone = null
             muted = false
-            if (capturing) onState("听着呢")
+            if (capturing) onState("听着呢 · " + micLabel())
         }
     }
 }
