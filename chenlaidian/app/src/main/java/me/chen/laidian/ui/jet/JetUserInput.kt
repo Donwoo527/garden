@@ -50,6 +50,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -89,7 +90,7 @@ import android.widget.Toast
 enum class InputSelector { NONE, EMOJI, PLUS }
 
 /** 输入栏（照 Jetchat）：文本框 + 表情/图片/电话 三个选择器 + 发送。表情面板内置。 */
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class, androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
 fun JetUserInput(
     insertText: String? = null,
@@ -118,6 +119,11 @@ fun JetUserInput(
     var textState by remember { val d = AppState.chatDraft.value; mutableStateOf(TextFieldValue(d, TextRange(d.length))) }
     fun setText(v: TextFieldValue) { textState = v; if (v.text != AppState.chatDraft.value) AppState.saveDraft(ctx0, v.text) }
     var focused by remember { mutableStateOf(false) }
+    // 0.108 她报的：键盘开着再点表情 两个叠在一起占满屏。改成二选一切换（微信那样）：
+    // 开表情/加号面板 → 先收键盘（清焦点）；表情开着再点表情钮 → 收面板、把键盘叫回来；点输入框拿到焦点 → 面板收（原来就有）
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val fieldFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     // 0.36 转发:外部塞文本进输入框(她的用例:把我的原话拿去发我)
     androidx.compose.runtime.LaunchedEffect(insertText) {
         if (insertText != null) {
@@ -140,7 +146,7 @@ fun JetUserInput(
                 Box(
                     Modifier.width(32.dp).height(44.dp)
                         .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                            selector = if (plusOpen) InputSelector.NONE else InputSelector.PLUS
+                            selector = if (plusOpen) InputSelector.NONE else { focusManager.clearFocus(); keyboard?.hide(); InputSelector.PLUS }
                         },
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Default.Add, contentDescription = "更多", tint = skin.ink, modifier = Modifier.size(26.dp)) }
@@ -153,6 +159,7 @@ fun JetUserInput(
                                 value = textState,
                                 onValueChange = { setText(it); onTyping(it.text.isNotEmpty()) },
                                 modifier = Modifier.fillMaxWidth()
+                                    .focusRequester(fieldFocus)
                                     .onFocusChanged { st -> if (st.isFocused) { selector = InputSelector.NONE; resetScroll() }; focused = st.isFocused },
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                                 keyboardActions = KeyboardActions { send() },
@@ -169,7 +176,14 @@ fun JetUserInput(
                             Modifier.padding(end = 10.dp, bottom = 10.dp).size(24.dp)
                                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
                                     // 0.35 读实时值 不靠组合快照(她报的表情面板收不起来)
-                                    selector = if (selector == InputSelector.EMOJI) InputSelector.NONE else InputSelector.EMOJI
+                                    if (selector == InputSelector.EMOJI) {
+                                        selector = InputSelector.NONE
+                                        try { fieldFocus.requestFocus() } catch (_: Exception) {}
+                                        keyboard?.show()
+                                    } else {
+                                        focusManager.clearFocus(); keyboard?.hide()
+                                        selector = InputSelector.EMOJI
+                                    }
                                 },
                             contentAlignment = Alignment.Center,
                         ) { Icon(painterResource(R.drawable.ic_mood), contentDescription = "表情", tint = if (emojiOpen) skin.ink else skin.muted, modifier = Modifier.size(24.dp)) }
