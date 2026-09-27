@@ -68,12 +68,16 @@ object AppUpdater {
     }
 
     /**
-     * 下载 apk 到 cache/update/update.apk（对应 file_paths.xml 里的 update/ 路径）。
+     * 下载 apk 到 cache/update/<服务端文件名>（如 chenlaidian-0.109.apk；对应 file_paths.xml 里的 update/ 路径）。
+     * 0.109：以前固定存成 update.apk——0927 夜她点「安装」0.108，OPPO 安装器弹「已安装相同版本 0.107」：
+     * 每版的 content:// 地址一模一样（这几版 apk 连大小都一样 10019818 B），安装器认了上回的。改成每版一个名字 旧的先删。
      * onProgress 0..100，在下载线程里回调（Compose 状态跨线程写是安全的，UI 直接赋值就行）。
      */
     fun download(ctx: Context, url: String, onProgress: (Int) -> Unit): File? {
         val dir = File(ctx.cacheDir, "update").apply { mkdirs() }
-        val f = File(dir, "update.apk")
+        val name = url.substringAfterLast('/').substringBefore('?').ifBlank { "update-${System.currentTimeMillis()}.apk" }
+        dir.listFiles()?.forEach { if (it.name != name) it.delete() }   // 旧版本的包清掉 不占地方
+        val f = File(dir, name)
         val req = Request.Builder().url(ChatClient.mediaUrl(url)).header("X-Token", TOKEN).get().build()
         return try {
             http(ctx).newCall(req).execute().use { r ->
