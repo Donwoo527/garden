@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剪三分之一</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0a0f; overflow: hidden; }
+  canvas { display: block; }
+  #cap { position: fixed; left: 16px; right: 16px; bottom: 9vh; text-align: center;
+         color: rgba(225,218,205,0.6); font: 15px/1.6 "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
+         letter-spacing: 0.18em; opacity: 0; transition: opacity 1s; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<script>
+// 0808 那条莫比乌斯带的续篇（0928 凌晨）。
+// 沿三分之一处剪一圈，剪不断：变成一条细的莫比乌斯带，和一条长一倍的带，互相扣着。
+const c = document.getElementById('c'), ctx = c.getContext('2d'), cap = document.getElementById('cap');
+let w, h;
+function resize() {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  w = innerWidth; h = innerHeight;
+  c.width = w * dpr; c.height = h * dpr;
+  c.style.width = w + 'px'; c.style.height = h + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+resize();
+addEventListener('resize', resize);
+
+const params = new URLSearchParams(location.search);
+const frozen = params.has('t') ? parseFloat(params.get('t')) : null;  // 调试用：?t=秒 停在那一刻
+const CYCLE = 26;
+const ease = x => x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x);
+const lerp = (a, b, k) => a + (b - a) * k;
+
+function project(p, view) {
+  const [x, y, z] = p, { cx, cy, rotY, rotX } = view;
+  const x1 = x * Math.cos(rotY) - y * Math.sin(rotY);
+  const y1 = y * Math.cos(rotY) + x * Math.sin(rotY);
+  const y2 = y1 * Math.cos(rotX) - z * Math.sin(rotX);
+  const z2 = z * Math.cos(rotX) + y1 * Math.sin(rotX);
+  const s = 1400 / (1400 + z2);
+  return [cx + x1 * s, cy + y2 * s, z2];
+}
+
+// 带上的一点：u 顺着带子走，v 横着量（-1..1 是原来整条带的宽）
+// u 走满 2π 时 cos(u/2)、sin(u/2) 变号，所以同一个 v 走两圈才回到原处——剪线就是这么绕两圈的
+function point(u, v, R, hw, phase) {
+  const a = u / 2 + phase;
+  const r = R + hw * v * Math.cos(a);
+  return [r * Math.cos(u), r * Math.sin(u), hw * v * Math.sin(a)];
+}
+
+// 顺着 u 描一条线，按深度分段：近的亮，远的暗
+function strokeLine(uEnd, v, geo, view, color, width) {
+  const steps = Math.max(2, Math.round(240 * uEnd / (Math.PI * 2)));
+  let prev = null;
+  for (let i = 0; i <= steps; i++) {
+    const u = (i / steps) * uEnd;
+    const q = project(point(u, v, geo.R, geo.hw, geo.phase), view);
+    if (prev) {
+      const z = (prev[2] + q[2]) / 2;
+      const d = Math.max(0.22, Math.min(1, 0.62 - z / (geo.R * 2)));
+      ctx.strokeStyle = `hsla(${color.h},${color.s}%,${color.l}%,${color.a * d})`;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(prev[0], prev[1]);
+      ctx.lineTo(q[0], q[1]);
+      ctx.stroke();
+    }
+    prev = q;
+  }
+}
+
+let shown = '', pending = false;
+function caption(text) {
+  if (text === shown || pending) return;
+  pending = true;
+  cap.style.opacity = 0;
+  setTimeout(() => {
+    cap.textContent = text;
+    cap.style.opacity = text ? 1 : 0;
+    shown = text;
+    pending = false;
+  }, 900);
+}
+
+const t0 = performance.now();
+function frame(now) {
+  const T = frozen != null ? frozen : (now - t0) / 1000;
+  const k = T % CYCLE;
+  // 0-5 一整条 / 5-10 剪线一笔画下去，绕两圈 / 10-15 剪缝张开 / 15-23 扣着转 / 23-26 合回去
+  const cut = ease((k - 5) / 5);
+  const tint = ease((k - 8.5) / 2.5) * (1 - ease((k - 23) / 3));
+  const open = ease((k - 10) / 5) * (1 - ease((k - 23) / 3));
+
+  ctx.fillStyle = 'rgba(10,10,15,0.32)';
+  ctx.fillRect(0, 0, w, h);
+
+  const R = Math.min(w, h) * 0.2;
+  const geo = { R, hw: R * 0.42, phase: T * 0.22 };
+  const view = { cx: w / 2, cy: h / 2 - h * 0.03, rotY: T * 0.16, rotX: 0.6 };
+
+  // 外侧两个三分之一：剪开后连成一条，长一倍，绕两圈
+  const outer = { h: 212, s: lerp(8, 55, tint), l: lerp(78, 66, tint), a: 0.72 };
+  for (let i = 0; i < 7; i++) {
+    const v = 1 / 3 + (2 / 3) * (i / 6) + open * 0.5;
+    strokeLine(Math.PI * 4, v, geo, view, outer, 1.1);
+  }
+  // 中间三分之一：还是莫比乌斯带，只是细了
+  const inner = { h: 38, s: lerp(8, 78, tint), l: lerp(78, 64, tint), a: 0.85 };
+  const half = 1 / 3 - open * 0.07;
+  for (let i = 0; i < 5; i++) {
+    const v = -half + (2 * half) * (i / 4);
+    strokeLine(Math.PI * 2, v, geo, view, inner, 1.3);
+  }
+  // 剪线：一笔画，走完两圈才闭合；笔尖一个亮点
+  if (k >= 5 && open < 0.98) {
+    const uCut = cut * Math.PI * 4;
+    strokeLine(uCut, 1 / 3, geo, view, { h: 0, s: 0, l: 97, a: 0.95 * (1 - open) }, 2.2);
+    if (cut < 1) {
+      const tip = project(point(uCut, 1 / 3, geo.R, geo.hw, geo.phase), view);
+      ctx.save();
+      ctx.shadowColor = 'rgba(255,250,235,0.9)';
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = 'rgba(255,252,240,1)';
+      ctx.beginPath();
+      ctx.arc(tip[0], tip[1], 3.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  caption(k < 5 ? '一条带子，只有一个面'
+        : k < 10.5 ? '沿着三分之一，剪一圈'
+        : k < 23 ? '没断开。变成两个，扣在一起'
+        : '');
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
