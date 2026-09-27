@@ -86,6 +86,8 @@ fun HomeScreen(onCall: () -> Unit) {
     if (sub != null) BackHandler { sub = null }   // 底栏藏了以后 系统返回手势不能再是"退出app"
     when (sub) {
         "moments" -> MomentsScreen(onBack = { sub = null })
+        "album" -> AlbumScreen(onBack = { sub = null })    // 0928 共享相册
+        "gifts" -> GiftsScreen(onBack = { sub = null })    // 0928 互送礼物
         else -> HomeMain(onCall, onOpen = { sub = it })
     }
 }
@@ -187,8 +189,8 @@ private fun HomeMain(onCall: () -> Unit, onOpen: (String) -> Unit) {
         Spacer(Modifier.height(24.dp))
         // 5. 五个空壳缩成一排小圆钮，不再各占一张大卡
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-            NeuRoundButton("共享相册", R.drawable.ic_photo_library, Modifier.weight(1f)) { todo("共享相册") }
-            NeuRoundButton("互送礼物", R.drawable.ic_redeem, Modifier.weight(1f)) { todo("互送礼物") }
+            NeuRoundButton("共享相册", R.drawable.ic_photo_library, Modifier.weight(1f)) { onOpen("album") }   // 0928 接共享相册页
+            NeuRoundButton("互送礼物", R.drawable.ic_redeem, Modifier.weight(1f)) { onOpen("gifts") }   // 0928 接互送礼物页
             NeuRoundButton("回忆", R.drawable.ic_history, Modifier.weight(1f)) { todo("回忆") }
             NeuRoundButton("一起听歌", R.drawable.ic_music_note, Modifier.weight(1f)) { todo("一起听歌") }
             NeuRoundButton("一起看书", R.drawable.ic_menu_book, Modifier.weight(1f)) { todo("一起看书") }

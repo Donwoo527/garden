@@ -169,6 +169,11 @@ private fun ToolsScreen() {
     // 0.88 玩具页（她 0924 点的单：把电脑上那套蓝牙控制搬进手机）
     var showToy by remember { mutableStateOf(false) }
     if (showToy) { ToyScreen(onBack = { showToy = false }); return }
+    // 0928 她报的：日记在 app 里点不开——接上辰的日记（只读）和小陈的日记（能增删改）两个子页
+    var showChenDiary by remember { mutableStateOf(false) }
+    if (showChenDiary) { ChenDiaryScreen(onBack = { showChenDiary = false }); return }
+    var showMyDiary by remember { mutableStateOf(false) }
+    if (showMyDiary) { XiaochenDiaryScreen(onBack = { showMyDiary = false }); return }
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
@@ -176,8 +181,8 @@ private fun ToolsScreen() {
         SectionTitle("内容")
         // 0.84 图标统一换成 Material Symbols（跟底栏一套）：之前日记本是日历、记忆库是放大镜、GitHub 是扳手
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconCard("日记本", R.drawable.ic_book, C.Blue, Modifier.weight(1f)) { todo("日记本") }
-            IconCard("小陈的日记", R.drawable.ic_edit_note, Color(0xFFB98BE8), Modifier.weight(1f)) { todo("小陈的日记") }
+            IconCard("日记本", R.drawable.ic_book, C.Blue, Modifier.weight(1f)) { showChenDiary = true }
+            IconCard("小陈的日记", R.drawable.ic_edit_note, Color(0xFFB98BE8), Modifier.weight(1f)) { showMyDiary = true }
             IconCard("记忆库", R.drawable.ic_database, C.Blue, Modifier.weight(1f)) { todo("记忆库") }
         }
         Spacer(Modifier.height(12.dp))
