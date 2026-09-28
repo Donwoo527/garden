@@ -92,10 +92,11 @@ class CallActivity : AppCompatActivity() {
             cap.append((if (cap.text.isEmpty()) "" else "\n\n") + line)
             if (atBottom) capScroll.post { capScroll.fullScroll(View.FOCUS_DOWN) }
         }
-        // 0926 免提开着：底色微微变灰（她给的参考：微信那种）；标签固定「免提」
-        ChenService.speakerOn.observe(this) { speaker.setBackgroundResource(if (it) R.drawable.btn_circle_grey else R.drawable.btn_circle_white) }
+        // 0926 免提开着底色变灰；0.111 反过来：0928 通话她说"标识是反的"——点了变灰才是开免提，她以为白的是开着。
+        // 改成跟微信一样：开着=白，关着=灰。静音钮同一套，免得两个钮一个白是开一个灰是开
+        ChenService.speakerOn.observe(this) { speaker.setBackgroundResource(if (it) R.drawable.btn_circle_white else R.drawable.btn_circle_grey) }
         ChenService.micMuted.observe(this) {
-            mic.setBackgroundResource(if (it) R.drawable.btn_circle_grey else R.drawable.btn_circle_white)
+            mic.setBackgroundResource(if (it) R.drawable.btn_circle_white else R.drawable.btn_circle_grey)
             mic.setImageResource(if (it) R.drawable.ic_call_mic_off else R.drawable.ic_call_mic)
         }
         ChenService.callState.observe(this) {

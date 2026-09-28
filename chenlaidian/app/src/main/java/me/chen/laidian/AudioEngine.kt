@@ -38,8 +38,7 @@ class AudioEngine(
         private const val SPEECH_RMS_MIN = 300.0
         private const val SPEECH_RMS_MAX = 900.0
         private const val NOISE_MULT = 3.0
-        // 0.107 插话：戴耳机时我说话不掐她的麦；她连续说满这么久，我就闭嘴
-        private const val BARGE_IN_MS = 300
+        // 0.107 的插话（她说满 300ms 我就闭嘴）0.111 撤了：一点杂音就掐断我，见 capture 循环里的说明
         private const val MIN_SPEECH_MS = 350       // 短于这个的当噪音丢掉
         private const val END_SILENCE_MS = 1500      // 说完停顿多久算一句（0908 实测 700 会把她的话切碎）
         private const val MAX_UTTERANCE_MS = 15000  // 一句最长
@@ -225,13 +224,6 @@ class AudioEngine(
         else -> "麦${currentRec?.routedDevice?.type}"
     }
 
-    /** 0.107 插话：她开口了，停掉正在放的这段、清掉排队的，把话筒让给她。 */
-    private fun interruptPlayback() {
-        playQueue.clear()
-        try { player?.stop() } catch (_: Exception) {}
-        currentDone?.let { synchronized(it) { it.notifyAll() } }
-    }
-
     // ---------- 录音 ----------
 
     @SuppressLint("MissingPermission")
@@ -286,7 +278,8 @@ class AudioEngine(
                     if (loud) {
                         if (!inSpeech) { inSpeech = true; userSpeaking = true; onState("你在说…") }
                         utter.write(frame, 0, n); speechMs += FRAME_MS; silenceMs = 0
-                        if (muted && bargeInOk && speechMs >= BARGE_IN_MS) interruptPlayback()   // 0.107 她开口了 我闭嘴
+                        // 0.111 不再插话掐我：0928 通话一点杂音就把辰的话掐断三回，她"没有必要擦掉你说的话"。
+                        // 走耳机时照样边放边收，她说的一句不丢，只是不停我的播放
                     } else if (inSpeech) {
                         utter.write(frame, 0, n); silenceMs += FRAME_MS
                     }
