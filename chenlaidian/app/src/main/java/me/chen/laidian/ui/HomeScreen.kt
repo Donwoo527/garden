@@ -30,6 +30,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Send
@@ -208,6 +210,13 @@ fun MomentsScreen(onBack: () -> Unit) {
     var draft by remember { mutableStateOf("") }
     var draftUrls by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
+    // 0.110 她要的搜索：服务端已经把全部动态给过来了，这里本地按正文和评论过滤
+    var searching by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val q = query.trim()
+    val shown = if (!searching || q.isEmpty()) moments else moments.filter { m ->
+        m.text.contains(q, ignoreCase = true) || m.comments.any { it.text.contains(q, ignoreCase = true) }
+    }
 
     LaunchedEffect(Unit) {
         val list = withContext(Dispatchers.IO) { ChatApi.loadMoments(ctx) }
@@ -239,10 +248,31 @@ fun MomentsScreen(onBack: () -> Unit) {
         // 0.84 顶栏跟皮肤走（之前是白色 Material 条 跟主页两套皮）
         Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "返回", tint = skin.ink) }
-            Text("朋友圈", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = skin.ink)
+            if (searching) {
+                // 跟评论框同一个凹胶囊
+                Box(Modifier.weight(1f).heightIn(min = 36.dp).sunken(18.dp).padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.CenterStart) {
+                    BasicTextField(
+                        value = query, onValueChange = { query = it }, singleLine = true,
+                        cursorBrush = SolidColor(skin.ink),
+                        textStyle = LocalTextStyle.current.copy(color = skin.ink, fontSize = 14.sp),
+                        modifier = Modifier.fillMaxWidth(),
+                        decorationBox = { inner -> Box { if (query.isEmpty()) Text("搜动态和评论", fontSize = 14.sp, color = skin.muted); inner() } },
+                    )
+                }
+                IconButton(onClick = { searching = false; query = "" }) { Icon(Icons.Default.Close, contentDescription = "关掉搜索", tint = skin.muted) }
+            } else {
+                Text("朋友圈", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = skin.ink, modifier = Modifier.weight(1f))
+                IconButton(onClick = { searching = true }) { Icon(Icons.Default.Search, contentDescription = "搜索", tint = skin.muted) }
+            }
         }
         LazyColumn(Modifier.fillMaxSize()) {
-            item {
+            if (searching) item {
+                Text(
+                    if (q.isEmpty()) "输几个字，正文和评论里有的都会翻出来" else "找到 ${shown.size} 条",
+                    fontSize = 12.sp, color = skin.muted, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+            if (!searching) item {
                 WhiteCard(Modifier.padding(12.dp)) {
                     Column(Modifier.padding(12.dp)) {
                         // 输入区=凹（她的凹凸规范）；0.85 她：发帖框是圆角矩形（角小 边直）评论框才是胶囊 两个都别太粗
@@ -271,7 +301,7 @@ fun MomentsScreen(onBack: () -> Unit) {
                     }
                 }
             }
-            items(moments, key = { it.id }) { m -> MomentCard(m, loader) }
+            items(shown, key = { it.id }) { m -> MomentCard(m, loader) }
             item { Spacer(Modifier.height(24.dp)) }
         }
     }
