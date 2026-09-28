@@ -275,6 +275,7 @@ class ChenService : Service() {
     private fun connect() {
         if (!running || ws != null) return
         setStatus("连接中…")
+        audio.resetStream()   // 0.113 新连接从干净开始：流式先关、手里的 sid 作废，等这条连接自己的 hello
         val url = "wss://${BuildConfig.SERVER_HOST}:${BuildConfig.SERVER_PORT}/ws"
         ws = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -290,6 +291,7 @@ class ChenService : Service() {
 
     private fun onDown(why: String) {
         ws = null
+        audio.resetStream()   // 0.113 断了：正在传的那句服务端自己收尾，本地不补发；重连后等新 hello 再流式
         handler.removeCallbacks(pingRunnable)
         if (!running) return
         val wait = backoffMs
@@ -313,6 +315,10 @@ class ChenService : Service() {
             "pong" -> {}
             "status" -> sttStatus.postValue(o.optString("message"))
             "stt" -> lastText.postValue("你：" + o.optString("text"))
+            // 0.113 流式识别：hello 说这条连接能边听边认；半句字只挂状态行，不进字幕（字幕服务端照旧发 stt）
+            "hello" -> audio.onHello(o.optBoolean("stream_stt", false))
+            "stt_partial" -> audio.onSttPartial(o.optString("sid"), if (o.isNull("text")) "" else o.optString("text"))
+            "stt_final" -> audio.onSttFinal(o.optString("sid"))
             "reply", "audio_reply" -> {
                 lastText.postValue("辰：" + o.optString("text"))
                 // 0926 她截图的 "Invalid URL port: 8200null"：配音超时时服务端发 audio_url: null，

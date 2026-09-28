@@ -10,6 +10,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 0.112 通话模式要这个（普通权限 装上就有 不弹窗）：没有它 AudioService 把 setMode(MODE_IN_COMMUNICATION)、
+         setSpeakerphoneOn、startBluetoothSco、setBluetoothScoOn 全静默拒掉（logcat: Audio Settings Permission Denial），
+         通话一直是"普通模式"。0908"免提一直显示关"多半也是它 -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- 0.88 玩具页：手机直接连 SVAKOM 蓝牙。12+ 用 SCAN/CONNECT；11 及以下扫描要定位权限 -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
