@@ -543,7 +543,8 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
                        loader: ImageLoader, onOpenImage: (String) -> Unit, onQuote: (Msg) -> Unit, onForward: (Msg) -> Unit, onForwardImage: (String) -> Unit, onFav: (Msg) -> Unit, onCopy: (Msg) -> Unit) {
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     val borderColor = if (isUserMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
-    val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
+    // 0.113 她 0928 截图："对话空白间隔有点大，可以小点"——换人处上 8→4、下 8→5（合计 16→9），同一人连发的 3 不动
+    val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 4.dp) else Modifier
     // 0926 思考行/工具行不走这里：Messages 里并成组交给 AuxRow
     Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = if (isUserMe) Arrangement.End else Arrangement.Start) {
         if (!isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = true, url = "", loader = loader)
@@ -552,7 +553,7 @@ private fun MessageRow(m: Msg, quoted: Msg?, isUserMe: Boolean, isFirstMessageBy
             if (!isUserMe && !m.thinking.isNullOrBlank()) ThinkingFold(m.thinking)
             ChatItemBubble(m, quoted, isUserMe, loader, onOpenImage, onQuote, onForward, onForwardImage, onFav, onCopy)
             if (showTime) TimeUnder(m.timeLabel(), isUserMe, read)
-            Spacer(Modifier.height(if (isFirstMessageByAuthor) 8.dp else 3.dp))
+            Spacer(Modifier.height(if (isFirstMessageByAuthor) 5.dp else 3.dp))
         }
         if (isUserMe) AvatarOrSpace(isLastMessageByAuthor, borderColor, isChen = false, url = avatarXiaochen, loader = loader)
     }
@@ -672,7 +673,7 @@ private fun ThinkingFold(thinking: String, label: String = "思考") {
 /** 0926 思考组 / 工具组：占原来思考行的位置（头像列 + 280 宽）；卡片样式见 FoldCard */
 @Composable
 private fun AuxRow(row: ChatRow.Group, isLastMessageByAuthor: Boolean, showTime: Boolean, loader: ImageLoader) {
-    val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 8.dp) else Modifier
+    val spaceBetweenAuthors = if (isLastMessageByAuthor) Modifier.padding(top = 4.dp) else Modifier   // 0.113 跟 MessageRow 一起收紧
     Row(modifier = spaceBetweenAuthors.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
         AvatarOrSpace(isLastMessageByAuthor, MaterialTheme.colorScheme.tertiary, isChen = true, url = "", loader = loader)
         Column(Modifier.weight(1f, fill = false).widthIn(max = 280.dp), horizontalAlignment = Alignment.Start) {
