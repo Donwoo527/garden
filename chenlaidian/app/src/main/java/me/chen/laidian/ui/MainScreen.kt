@@ -174,10 +174,24 @@ private fun ToolsScreen() {
     if (showChenDiary) { ChenDiaryScreen(onBack = { showChenDiary = false }); return }
     var showMyDiary by remember { mutableStateOf(false) }
     if (showMyDiary) { XiaochenDiaryScreen(onBack = { showMyDiary = false }); return }
+    // 0929 一起读 / 一起听（她电话里拍的："用网页那个套进去吧，没有必要什么都自己做"；听歌 QQ 音乐为主）
+    var showRead by remember { mutableStateOf(false) }
+    if (showRead) BackHandler { showRead = false }
+    if (showRead) { ReadScreen(onBack = { showRead = false }); return }
+    var showListen by remember { mutableStateOf(false) }
+    if (showListen) BackHandler { showListen = false }
+    if (showListen) { ListenScreen(onBack = { showListen = false }); return }
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
         Text("辰的百宝箱", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = LocalSkin.current.ink, modifier = Modifier.padding(20.dp))
+        SectionTitle("一起")
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            IconCard("一起读", R.drawable.ic_menu_book, Color(0xFFB98BE8), Modifier.weight(1f)) { showRead = true }
+            IconCard("一起听", R.drawable.ic_music_note, Color(0xFFE0668A), Modifier.weight(1f)) { showListen = true }
+            Spacer(Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(12.dp))
         SectionTitle("内容")
         // 0.84 图标统一换成 Material Symbols（跟底栏一套）：之前日记本是日历、记忆库是放大镜、GitHub 是扳手
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

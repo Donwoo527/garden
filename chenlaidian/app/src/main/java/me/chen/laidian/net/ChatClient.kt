@@ -142,6 +142,9 @@ object ChatClient {
             }
             "moment_delete" -> { val id = o.optString("id"); moments.value = moments.value.filter { it.id != id } }
             "moments_unread" -> momentsUnread.value = o.optInt("count", 0)
+            // 0929 一起听 / 一起读：服务端下发的指令，整包交给 AppEvents，服务和页面自己订阅
+            "music_cmd" -> AppEvents.musicCmd.tryEmit(o)
+            "reading_anchor" -> AppEvents.readingAnchor.tryEmit(o)
             "moments_config" -> o.optJSONObject("config")?.let { c ->
                 avatarChen.value = c.optString("avatar_chen", "")
                 avatarXiaochen.value = c.optString("avatar_xiaochen", "")

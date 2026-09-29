@@ -179,6 +179,8 @@ class ChenService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // 0.114 一起听：点歌/切歌指令的订阅挂在常驻服务上，没给通知使用权时「辰点了一首歌」的通知也能收到（分身 B 的建议）
+        me.chen.laidian.music.MusicCommands.start(this, "service")
         createChannels()
         // 0.88 玩具页：把 ws 交给它，收到辰的指令走 onRemote，状态回传给服务端
         ToyController.init(this) { send(it) }
@@ -315,10 +317,16 @@ class ChenService : Service() {
             "pong" -> {}
             "status" -> sttStatus.postValue(o.optString("message"))
             "stt" -> lastText.postValue("你：" + o.optString("text"))
-            // 0.113 流式识别：hello 说这条连接能边听边认；半句字只挂状态行，不进字幕（字幕服务端照旧发 stt）
+            // 0.113 流式识别：hello 说这条连接能边听边认；半句字只挂状态行，不进字幕
             "hello" -> audio.onHello(o.optBoolean("stream_stt", false))
             "stt_partial" -> audio.onSttPartial(o.optString("sid"), if (o.isNull("text")) "" else o.optString("text"))
-            "stt_final" -> audio.onSttFinal(o.optString("sid"))
+            // 0.114 她 0929 电话里报的："我说的话只在聊天页显示，通话页没同步"——流式路径服务端收尾只发 stt_final 不发 stt，
+            // 字幕一直空着。stt_final 带字就照 stt 一样上字幕（服务端 0929 起也补发 stt，重复一次同样的字无害）
+            "stt_final" -> {
+                audio.onSttFinal(o.optString("sid"))
+                val t = if (o.isNull("text")) "" else o.optString("text")
+                if (t.isNotBlank()) lastText.postValue("你：" + t)
+            }
             "reply", "audio_reply" -> {
                 lastText.postValue("辰：" + o.optString("text"))
                 // 0926 她截图的 "Invalid URL port: 8200null"：配音超时时服务端发 audio_url: null，
