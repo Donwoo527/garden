@@ -21,11 +21,19 @@ import androidx.core.view.WindowInsetsCompat
 /** 来电全屏页：锁屏上也能弹出来、亮屏、响铃、震动。接听后变通话页（M2 才有声音）。 */
 class CallActivity : AppCompatActivity() {
 
+    companion object {
+        // 0929 她报的：重打直接缩成小窗。当前这张通话页（弱引用 不拖住 Activity；只在主线程读写）：
+        // 页面退到后台(onStop)时 LiveData 不推「已挂断」，辰那头挂了它也不关，会留成过期页被下一通复用 → 挂断时 ChenService 调 finishLive 直接关
+        private var live: java.lang.ref.WeakReference<CallActivity>? = null
+        fun finishLive() { live?.get()?.let { if (!it.isFinishing) it.finish() } }
+    }
+
     private var ringtone: Ringtone? = null
     private var vibrator: Vibrator? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        live = java.lang.ref.WeakReference(this)   // 0929 她报的：重打直接缩成小窗——登记"当前通话页"，挂断关页/销毁弹小窗都只认它
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -110,21 +118,7 @@ class CallActivity : AppCompatActivity() {
         // 0.35 她点名的可见缩小按钮：点了回上一页 通话不断 浮窗由onDestroy兜底弹出
         findViewById<TextView>(R.id.btnMinimize).setOnClickListener { finish() }
 
-        val outgoing = intent.getBooleanExtra("outgoing", false)
-        val resume = intent.getBooleanExtra("resume", false)   // 0.34 从悬浮小窗点回来
-        if (resume) {
-            title.text = "通话中"
-            state.text = ChenService.sttStatus.value ?: ""
-            acceptWrap.visibility = View.GONE
-        } else if (outgoing) {
-            // 0.41 她点单："打给辰"是废话 删掉 这行直接放状态
-            title.text = "等待接听中…"
-            state.text = ""
-            acceptWrap.visibility = View.GONE
-            svc(ChenService.ACTION_ACCEPT)
-        } else {
-            startRinging()
-        }
+        applyIntent(intent)   // 0929 她报的：重打直接缩成小窗——三种进场（回到通话/拨出/来电）挪进 applyIntent，复用实例的 onNewIntent 走同一套
         // 0.34 悬浮窗权限引导（一次性提示 不强跳）
         if (!FloatCall.canShow(this)) {
             android.widget.Toast.makeText(this, "想让通话缩成小窗的话 给辰来电开一下\"悬浮窗/显示在其他应用上层\"权限", android.widget.Toast.LENGTH_LONG).show()
@@ -141,6 +135,65 @@ class CallActivity : AppCompatActivity() {
             stopRinging()
             svc(ChenService.ACTION_HANGUP)
             finish()
+        }
+    }
+
+    // 0929 她报的：重打直接缩成小窗——singleTop / 小窗的 REORDER_TO_FRONT 会把新 intent 交给还活着的旧页面，
+    // 原来没接 onNewIntent：界面停在上一通的样子（没有接听钮、不响铃），这里按新 intent 重摆
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        live = java.lang.ref.WeakReference(this)
+        applyIntent(intent)
+    }
+
+    /** 按 intent 把页面摆成三种之一：回到通话（小窗点回来 / 通话中又点了拨打 / 转屏重建）、她拨出、辰打来。新建和复用都走这里 */
+    private fun applyIntent(i: Intent) {
+        val title = findViewById<TextView>(R.id.callText)
+        val state = findViewById<TextView>(R.id.callState)
+        val acceptWrap = findViewById<View>(R.id.acceptWrap)
+        val speakerWrap = findViewById<View>(R.id.speakerWrap)
+        val micWrap = findViewById<View>(R.id.micWrap)
+        // 0929 她报的：重打直接缩成小窗——已经在通话中就只是"回到通话页"：不再发一次接听（会重开录音/放音、把免提复位），也不响铃
+        val resume = i.getBooleanExtra("resume", false) || ChenService.callState.value == "通话中"   // 0.34 从悬浮小窗点回来
+        if (resume) {
+            stopRinging()
+            title.text = "通话中"
+            state.text = ChenService.sttStatus.value ?: ""
+            acceptWrap.visibility = View.GONE
+            speakerWrap.visibility = View.VISIBLE   // 0929 复用实例时「通话中」不一定再推一次，按钮这里自己摆好
+            micWrap.visibility = View.VISIBLE
+            return
+        }
+        // 0929 新的一通：字幕清空。lastText 也是粘性的，不清的话新页面 onStart 会先把上一通最后一句贴上来
+        findViewById<TextView>(R.id.callLast).text = ""
+        ChenService.lastText.value = ""
+        if (i.getBooleanExtra("outgoing", false)) {
+            // 0929 她报的：重打直接缩成小窗——根因：callState 是进程级静态 LiveData，上一通的「已挂断」一直留着；
+            // 新页面 onStart 订阅时先收到这个旧值 → 当场 finish()（还会"嘀嘀"一声），服务照样把这通接成「通话中」→ onDestroy 弹小窗。
+            // 第一通不坏是因为进程刚起时初值是「空闲」。这里赶在观察者生效(onStart)之前，把状态换成这一通自己的「拨号中」
+            ChenService.callState.value = "拨号中"
+            // 0.41 她点单："打给辰"是废话 删掉 这行直接放状态
+            title.text = "等待接听中…"
+            state.text = ""
+            acceptWrap.visibility = View.GONE
+            svc(ChenService.ACTION_ACCEPT)
+        } else {
+            // 0929 她报的：重打直接缩成小窗——来电复用旧页面时，把锁屏弹出/接听钮/铃声摆回响铃态（新建的页面这几行等于重复一遍 无害）
+            if (Build.VERSION.SDK_INT >= 27) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+            }
+            title.text = i.getStringExtra("text") ?: "辰打电话来了"
+            state.text = "响铃中…"
+            acceptWrap.visibility = View.VISIBLE
+            speakerWrap.visibility = View.GONE
+            micWrap.visibility = View.GONE
+            stopRinging()
+            startRinging()
         }
     }
 
@@ -200,8 +253,12 @@ class CallActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         stopRinging()
+        // 0929 她报的：重打直接缩成小窗——只有"当前通话页"离开才弹小窗：挂断后还没销毁完的旧页面（销毁可能拖好几秒）
+        // 碰上刚拨出去的下一通「通话中」，不能替它弹小窗
+        val isLive = live?.get() === this
+        if (isLive) live = null
         // 0.35 浮窗全路径：无论返回键/缩小按钮/别的方式离开 只要还在通话 小方块都出来
-        if (ChenService.callState.value == "通话中") FloatCall.show(applicationContext)
+        if (isLive && ChenService.callState.value == "通话中") FloatCall.show(applicationContext)
         super.onDestroy()
     }
 }

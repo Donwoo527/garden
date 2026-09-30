@@ -57,7 +57,7 @@ class ChenService : Service() {
         /** 0.52 查岗上报状态（主页"聊天✓ · 语音"那行末尾显示）：✓ / 未授权(mode=?) / 无事件 / 失败:… */
         val usageStatus = MutableLiveData("")
         @Volatile var callStartTs = 0L   // 0.34 通话开始时间(悬浮小窗计时用)
-        /** 空闲 / 响铃中 / 通话中 / 已挂断 */
+        /** 空闲 / 响铃中 / 拨号中 / 通话中 / 已挂断（0929 加「拨号中」：她拨出时 CallActivity 先写它，盖掉上一通留下的「已挂断」） */
         val callState = MutableLiveData("空闲")
         val speakerOn = MutableLiveData(false)
         val micMuted = MutableLiveData(false)   // 0.106 通话页静音钮的状态
@@ -185,7 +185,8 @@ class ChenService : Service() {
         // 0.88 玩具页：把 ws 交给它，收到辰的指令走 onRemote，状态回传给服务端
         ToyController.init(this) { send(it) }
         client = Tls.client(this)
-        audio = AudioEngine(this, client, { send(it) }, { sttStatus.postValue(it) })
+        // 0.115 onSpeaker：通话中途戴上耳机引擎替她关掉免提 / 耳机都摘了还原时，通话页的免提钮跟着变
+        audio = AudioEngine(this, client, { send(it) }, { sttStatus.postValue(it) }, onSpeaker = { speakerOn.postValue(it) })
         me.chen.laidian.net.ChatClient.start(applicationContext)
         // 0926 工具行（"读 memory.md"之类）不弹通知——那不是辰说的话；思考行照旧
         me.chen.laidian.net.ChatClient.onMessage = { m -> if (m.isChen && !AppState.visible && m.msgType != "tool") notifyMsg(m) }
@@ -454,6 +455,9 @@ class ChenService : Service() {
         }
         callState.postValue(finalState)
         callStartTs = 0L
-        android.os.Handler(mainLooper).post { FloatCall.hide() }   // 0.34 通话结束小窗必须消失(Activity不在时兜底)
+        android.os.Handler(mainLooper).post {
+            FloatCall.hide()   // 0.34 通话结束小窗必须消失(Activity不在时兜底)
+            CallActivity.finishLive()   // 0929 她报的：重打直接缩成小窗——通话页退在后台时收不到「已挂断」不会自己关，这里直接关，不留给下一通复用
+        }
     }
 }

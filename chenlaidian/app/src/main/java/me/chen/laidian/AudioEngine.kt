@@ -26,12 +26,16 @@ import kotlin.math.sqrt
  *    没收到 hello（老服务端）还是上面那样说完整句发
  *  - 放：辰的 mp3 用信任自签证书的 OkHttp 下载到缓存，再交给 MediaPlayer
  *  - 半双工：辰在说的时候不录（省得把外放录回去）；0.112 起只在开免提时这样，没开免提照样边放边收
+ *  - 0.115 通话路由：中途插拔耳机按设备回调对账（新接上的耳机直接用，开着免提就替她关掉；耳机都走了换回手机）；
+ *    要了耳机隔几秒核对真换过去没，没有就再要；录音钉不过去就整个重开一回；挂断收干净，开一通不信上一通的残留
  */
 class AudioEngine(
     private val context: Context,
     private val client: OkHttpClient,
     private val send: (JSONObject) -> Boolean,
     private val onState: (String) -> Unit,
+    // 0.115 引擎自己动了免提（中途戴上耳机 → 替她关掉；耳机都摘了 → 还原）时告诉外面，通话页的免提钮跟着变
+    private val onSpeaker: (Boolean) -> Unit = {},
 ) {
     companion object {
         const val SAMPLE_RATE = 16000
@@ -53,6 +57,21 @@ class AudioEngine(
         private const val STREAM_CHUNK_BYTES = SAMPLE_RATE * 2 * 200 / 1000   // 6400
         // 0.96 轮流说：她正说着时我的回复先等她这句说完再播，最多等这么久（0925 夜"你一说话我的话就没识别了"）
         private const val WAIT_TURN_MS = 8000L
+        // 0.115 算"耳机"的通话设备：通话中途接上其中一种 = 她要用耳机。无麦有线耳机也算（声音进耳机，麦照旧用手机的）。
+        // 都是编译期内联的 int 常量：老系统上 BLE 那个只是永远对不上，不会崩
+        private val HEADSET_TYPES = setOf(
+            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
+            android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+            android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+        )
+        // 0.115 设备增减先等一会儿再对账：蓝牙耳机一连上，A2DP / 通话声道(SCO) / 麦是分好几次报上来的。
+        // 少了设备等得久一点：别把一闪而过的（比如连 SCO 时设备重报一遍）当成摘了耳机，免提来回跳
+        private const val SETTLE_MS = 500L
+        private const val SETTLE_GONE_MS = 1200L
+        // 0.115 要了耳机之后隔这么久看一眼真换过去没（SCO 是异步连的，一般一两秒）；没有就再要一次，第三回还不行就放弃并说清楚
+        private val ROUTE_CHECK_MS = longArrayOf(3000L, 4000L, 6000L)
+        // 0.115 录音钉了耳机麦、这么久还没挪过去 → 趁她没在说话把录音整个重开一回（0928 那通：中途换过设备，录音一直留在手机麦）
+        private const val REOPEN_AFTER_MS = 2500L
     }
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -146,15 +165,76 @@ class AudioEngine(
 
     // ---------- 通话开始/结束 ----------
 
-    // 0.95 通话中途插拔/连断耳机：系统不会替我们改 communication device（之前手动定死在听筒）→ 声音还往听筒走
-    // 设备一变就按当前免提状态重新选一次。注册时系统会先把现有设备回调一遍，等于开场再选一次，无害。
+    // 0.95 通话中途插拔/连断耳机：系统不会替我们改 communication device（之前手动定死在听筒）→ 声音还往听筒走，设备一变就重选。
+    // 0.115 那时重选调的是 setSpeaker(speaker)——开着免提时耳机根本不在候选里（只有"没开免提"才挑耳机）：0930 早上她开着免提、
+    // 通话中途戴上蓝牙耳机 → 状态行一直「手机麦 声:扬声器」，我的声音照旧外放、她的话照旧进手机麦（先戴好再拨就没事：开场会挑耳机）。
+    // 现在设备有增减先等报齐，再对账（onDevicesSettled）：新接上的耳机直接用，开着免提就替她关掉；耳机都走了换回手机。
+    // 注册回调时系统会先把现有设备报一遍：开场就在的耳机已记进 headsetsSeen，不算"新接上"。
     @Volatile private var calling = false
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    // 0.115 开一通 / 挂一通互斥：辰那头挂断走 ws 线程（endCall），她紧接着重拨走主线程（startCall）——两边交错的话，
+    // 挂断的收尾（清通话设备、切回普通模式、停录音）会落在新一通开好之后
+    private val callLock = Any()
+    // 0.115 通话代数：开一通、挂一通各 +1。录音/放音线程开工时记下，对不上 = 自己是上一通剩下的，不再碰这一通的东西
+    private val callGen = AtomicInteger()
+    // 0.115 下面这些路由状态只在持 routeLock 时改（大多在主线程）；endCall 可能在 ws 线程上跑，靠这把锁跟主线程上的对账/核对错开——
+    // 不然挂断刚清掉通话设备，主线程上一个迟到的核对又把蓝牙要回来，SCO 就一直开着
+    private val routeLock = Any()
+    private var headsetsSeen: Set<String> = emptySet()   // 上次对账时在场的耳机（devKey）；多出来的 = 她刚戴上/插上的
+    private var preferHeadset: String? = null            // 最近接上的那副：几副耳机都在时优先它
+    private var speakerBeforeHeadset: Boolean? = null    // 接耳机前免提开没开（开着的话是我替她关的）；耳机都走了照这个还原。她自己按开免提就作废
+    @Volatile private var routeWant: android.media.AudioDeviceInfo? = null   // 12+：最近一次要的通话设备（状态行拿它标「正在换」）
+    private var routeTries = 0
+    @Volatile private var routeGaveUp = false            // 12+：要了三回耳机都没换过去
+    // 0.115 11 及以下走老的 SCO 那套：startBluetoothSco 之后等「SCO 连上」的广播再 setBluetoothScoOn（以前是 start 完当场就设）
+    private var scoWanted = false
+    private var scoUp = false
+    private var scoRetries = 0
+    @Volatile private var scoReceiver: android.content.BroadcastReceiver? = null
+    private var settleAt = 0L                            // 对账排在这个时刻（uptimeMillis，只在主线程上碰）
+    @Volatile private var noteUntil = 0L                 // 路由提示在状态行上挂到这个时刻（elapsedRealtime），之前每秒的诊断行不盖它
+    private val settle = Runnable { onDevicesSettled() }
+    private val routeCheck = Runnable { if (android.os.Build.VERSION.SDK_INT >= 31) checkRoute() }
+    private val scoRetry = Runnable { retrySco() }
     private val deviceCallback = object : android.media.AudioDeviceCallback() {
-        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) { if (calling) setSpeaker(speaker) }
-        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) { if (calling) setSpeaker(speaker) }
+        override fun onAudioDevicesAdded(added: Array<out android.media.AudioDeviceInfo>?) = devicesChanged(SETTLE_MS)
+        override fun onAudioDevicesRemoved(removed: Array<out android.media.AudioDeviceInfo>?) = devicesChanged(SETTLE_GONE_MS)
+    }
+
+    /** 0.115 设备有增减（主线程）：先别动，排一次对账；排队期间又有变化就往后顺（只推迟不提前） */
+    private fun devicesChanged(delay: Long) {
+        if (!calling) return
+        val at = maxOf(settleAt, android.os.SystemClock.uptimeMillis() + delay)
+        settleAt = at
+        mainHandler.removeCallbacks(settle)
+        mainHandler.postAtTime(settle, at)
     }
 
     fun startCall() {
+        synchronized(callLock) { startCallLocked() }
+    }
+
+    /** 挂断收尾：她挂 / 辰挂（ws 线程）/ 服务销毁都走这里，重复调无害 */
+    fun endCall() {
+        synchronized(callLock) { endCallLocked() }
+    }
+
+    private fun startCallLocked() {
+        // 0.115 不信上一通的残留（0930 她：挂了重打「还是延续之前的」）：上一通没收干净（没走到 endCall / 重复接听）就先收一遍
+        if (calling || capturing || playThread != null) endCallLocked()
+        callGen.incrementAndGet()
+        synchronized(routeLock) {
+            calling = true   // 0.115 挪到最前（原来在注册回调前才置 true）：对账/核对都认它
+            // 开场就在的耳机：下面 setSpeaker(false) 本来就会挑它，不算"新接上"
+            headsetsSeen = currentHeadsets().keys.toSet()
+            preferHeadset = null; speakerBeforeHeadset = null
+            routeWant = null; routeTries = 0; routeGaveUp = false
+            scoWanted = false; scoUp = false; scoRetries = 0
+            settleAt = 0L; noteUntil = 0L
+        }
+        muted = false; userSpeaking = false; currentDone = null
+        // 0.115 先把系统里的通话路由清空（通话设备 / SCO / 免提），下面按此刻实际连着的设备从头选
+        resetRoute()
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         // 0.45 正式声明"我在通话"：拿语音焦点 别人抢了会通知我们 抢完自动还
         val attrs = android.media.AudioAttributes.Builder()
@@ -164,12 +244,12 @@ class AudioEngine(
             .setAudioAttributes(attrs).setOnAudioFocusChangeListener(focusListener).build()
             .also { audioManager.requestAudioFocus(it) }
         interrupted = false; lostForGood = false
+        if (android.os.Build.VERSION.SDK_INT < 31) registerScoReceiver()   // 0.115 老系统：赶在起 SCO 之前挂上，「连上了」那条才不会漏
         setSpeaker(false)
         startCapture()
         startPlayer()
         startFocusWatch()
-        calling = true
-        try { audioManager.registerAudioDeviceCallback(deviceCallback, android.os.Handler(android.os.Looper.getMainLooper())) } catch (_: Exception) {}
+        try { audioManager.registerAudioDeviceCallback(deviceCallback, mainHandler) } catch (_: Exception) {}
         // 0.112 通话设备真的换了（蓝牙 SCO 连上/断开、免提切过去了）→ 录音线程重钉麦。
         // SCO 是异步连的：setSpeaker 那一刻往往还没连上（通话设备还是听筒），要等这个回调才知道能钉蓝牙麦了
         if (android.os.Build.VERSION.SDK_INT >= 31) {
@@ -181,9 +261,19 @@ class AudioEngine(
         }
     }
 
-    fun endCall() {
-        calling = false
+    /** 0.115 每一步单独兜住：前面哪步抛了，后面的清理（清通话设备、切回普通模式）也照样做 */
+    private fun endCallLocked() {
+        callGen.incrementAndGet()   // 0.115 先作废这一通：还没退出的录音/放音线程下一步就认出自己是上一通的
+        synchronized(routeLock) {
+            calling = false
+            // 0.115 还没跑的对账/核对/重试一律作废（它们进门先持锁看 calling）
+            mainHandler.removeCallbacks(settle); mainHandler.removeCallbacks(routeCheck); mainHandler.removeCallbacks(scoRetry)
+            routeWant = null; routeGaveUp = false
+            scoWanted = false; scoUp = false
+        }
         try { audioManager.unregisterAudioDeviceCallback(deviceCallback) } catch (_: Exception) {}
+        scoReceiver?.let { try { context.unregisterReceiver(it) } catch (_: Exception) {} }
+        scoReceiver = null
         if (android.os.Build.VERSION.SDK_INT >= 31) {
             (commListener as? AudioManager.OnCommunicationDeviceChangedListener)?.let {
                 try { audioManager.removeOnCommunicationDeviceChangedListener(it) } catch (_: Exception) {}
@@ -198,47 +288,249 @@ class AudioEngine(
         focusRequest = null
         interrupted = false
         userMuted = false
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
-            audioManager.clearCommunicationDevice()
-        } else {
-            // 0.112 Android 11 及以下：startBluetoothSco 以前从没配过 stop（缺 MODIFY_AUDIO_SETTINGS 时 start 本来就被系统拒掉 没事；
-            // 权限补上以后 start 会真的开 SCO，挂了不关耳机就一直卡在通话音质）
-            @Suppress("DEPRECATION")
-            try { audioManager.isBluetoothScoOn = false; audioManager.stopBluetoothSco() } catch (_: Exception) {}
-        }
-        audioManager.mode = AudioManager.MODE_NORMAL
+        // 0.112 Android 11 及以下：startBluetoothSco 以前从没配过 stop（缺 MODIFY_AUDIO_SETTINGS 时 start 本来就被系统拒掉 没事；
+        // 权限补上以后 start 会真的开 SCO，挂了不关耳机就一直卡在通话音质）。0.115 收进 resetRoute：12+ 清通话设备，老系统关 SCO、关免提
+        resetRoute()
+        try { audioManager.mode = AudioManager.MODE_NORMAL } catch (_: Exception) {}
         speaker = false
+        muted = false; userSpeaking = false
+    }
+
+    /** 0.115 把系统里的通话路由清空：通话设备 / 蓝牙 SCO / 免提。开一通前（不信残留）和挂断时各做一遍 */
+    private fun resetRoute() {
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            try { audioManager.clearCommunicationDevice() } catch (_: Exception) {}
+        } else {
+            @Suppress("DEPRECATION")
+            try {
+                audioManager.isBluetoothScoOn = false
+                audioManager.stopBluetoothSco()
+                audioManager.isSpeakerphoneOn = false
+            } catch (_: Exception) {}
+        }
     }
 
     @Volatile private var speaker = false
 
-    /** Android 12+ 的 isSpeakerphoneOn 不可靠（0908 实测免提一直显示关），改走 communication device。
-     *  （0.112：那次多半是缺 MODIFY_AUDIO_SETTINGS——setSpeakerphoneOn/setMode 没这个权限会被系统静默拒掉，manifest 已补） */
+    /** 她按免提钮 / 开场。Android 12+ 的 isSpeakerphoneOn 不可靠（0908 实测免提一直显示关），改走 communication device。
+     *  （0.112：那次多半是缺 MODIFY_AUDIO_SETTINGS——setSpeakerphoneOn/setMode 没这个权限会被系统静默拒掉，manifest 已补）
+     *  0.115 挑设备挪进 applyRoute（中途插拔耳机也走它），这里只记她的选择 */
     fun setSpeaker(on: Boolean) {
-        speaker = on
-        if (android.os.Build.VERSION.SDK_INT >= 31) {
-            val devices = audioManager.availableCommunicationDevices
-            // 0.31 蓝牙耳机优先(她0910地铁实测:耳机麦收不到音才补的)：
-            // 非免提且蓝牙耳机在场 → 通话收放全走SCO耳机；免提或无蓝牙 → 原来的扬声器/听筒逻辑
-            // 0.95 耳机优先扩到有线/USB/BLE（她 0925 早上"听筒改成耳机就没声了"）：非免提时有哪种耳机走哪种
-            val headsetTypes = setOf(
-                android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO, android.media.AudioDeviceInfo.TYPE_BLE_HEADSET,
-                android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET, android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-                android.media.AudioDeviceInfo.TYPE_USB_HEADSET
-            )
-            val bt = if (!on) devices.firstOrNull { it.type in headsetTypes } else null
-            val want = if (on) android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
-            val dev = bt ?: devices.firstOrNull { it.type == want }
-            if (dev != null) audioManager.setCommunicationDevice(dev) else audioManager.isSpeakerphoneOn = on
-        } else {
-            @Suppress("DEPRECATION")
-            if (!on) { try { audioManager.startBluetoothSco(); audioManager.isBluetoothScoOn = true } catch (_: Exception) {} }
-            @Suppress("DEPRECATION")
-            audioManager.isSpeakerphoneOn = on
+        synchronized(routeLock) {
+            speaker = on
+            if (on) speakerBeforeHeadset = null   // 0.115 戴着耳机她自己开的免提：耳机摘了照她的来，不再还原成接耳机前的样子
+            if (!calling) return   // 0.115 已经挂了（辰挂断走 ws 线程，正好撞上她按免提）：只记开关，不再去动系统的通话设备
+            applyRoute(force = true)
         }
-        micDirty = true   // 0.112 切免提/换耳机后重钉麦（蓝牙这一下多半还钉不上：SCO 还在连，等通话设备回调）
     }
     fun isSpeaker() = speaker
+
+    /** 0.115 按现在的免提开关挑通话设备（调用方持 routeLock）：免提 → 扬声器；没开免提 → 耳机（最近接上的那副优先）→ 听筒。
+     *  0.31 蓝牙耳机优先(她0910地铁实测:耳机麦收不到音才补的)；0.95 耳机优先扩到有线/USB/BLE（她 0925 早上"听筒改成耳机就没声了"）。
+     *  force=false（设备有增减但耳机没变）：要的还是同一个就不重复要 */
+    private fun applyRoute(force: Boolean) {
+        if (android.os.Build.VERSION.SDK_INT >= 31) applyRoute31(force) else applyRouteLegacy(force)
+        micDirty = true   // 0.112 切免提/换耳机后重钉麦（蓝牙这一下多半还钉不上：SCO 还在连，等通话设备回调）
+    }
+
+    /** 0.115 12+：setCommunicationDevice。要的是耳机就隔几秒核对（checkRoute）：蓝牙 SCO 是异步连的，刚连上的耳机头一回常连不上，
+     *  系统会悄悄退回原来的设备——以前返回值不看、也没人回头看 */
+    @androidx.annotation.RequiresApi(31)
+    private fun applyRoute31(force: Boolean) {
+        val devices: List<android.media.AudioDeviceInfo> =
+            try { audioManager.availableCommunicationDevices } catch (_: Exception) { emptyList() }
+        val dev = if (speaker) devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            else pickHeadset(devices) ?: devices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+        if (dev == null) {
+            mainHandler.removeCallbacks(routeCheck)
+            routeWant = null
+            @Suppress("DEPRECATION")
+            try { audioManager.isSpeakerphoneOn = speaker } catch (_: Exception) {}
+            return
+        }
+        if (!force && sameDevice(routeWant, dev)) return   // 要的还是同一个：不重复要，也不打断正在等的核对
+        mainHandler.removeCallbacks(routeCheck)
+        routeTries = 0; routeGaveUp = false
+        // 设备刚被拔掉的那一下会抛 IllegalArgumentException（以前没兜，主线程上直接把服务带崩）
+        try { audioManager.setCommunicationDevice(dev) } catch (_: Exception) {}
+        routeWant = dev
+        if (dev.type in HEADSET_TYPES) mainHandler.postDelayed(routeCheck, ROUTE_CHECK_MS[0])
+    }
+
+    /** 0.115 12+（主线程）：要的耳机真换过去没。换过去了 → 重钉麦；没有 → 再要一次（间隔 ROUTE_CHECK_MS）；
+     *  第三回还不行 → 放弃，状态行说清楚；免提是我替她关的就开回来（至少听得见我）。她点两下免提（开→关）会从头再要 */
+    @androidx.annotation.RequiresApi(31)
+    private fun checkRoute() {
+        var note: String? = null
+        synchronized(routeLock) {
+            if (!calling) return
+            val want = routeWant ?: return
+            val cur = try { audioManager.communicationDevice } catch (_: Exception) { null }
+            if (sameDevice(cur, want)) { micDirty = true; return }
+            routeTries++
+            if (routeTries < ROUTE_CHECK_MS.size) {
+                try { audioManager.setCommunicationDevice(want) } catch (_: Exception) {}
+                mainHandler.postDelayed(routeCheck, ROUTE_CHECK_MS[routeTries])
+                return
+            }
+            routeGaveUp = true
+            val what = devName(want.type)
+            note = if (speakerBeforeHeadset == true) {
+                speakerBeforeHeadset = null
+                speaker = true
+                onSpeaker(true)
+                applyRoute(force = true)
+                "${what}的通话声道没接上，先开回免提（关掉免提会再试一次耳机）"
+            } else {
+                "${what}的通话声道没接上，还在用${devName(cur?.type)}（点两下免提能再试一次）"
+            }
+        }
+        note?.let { routeNote(it) }
+    }
+
+    /** 0.115 设备增减报齐后对一次账（主线程）：
+     *  - 新接上耳机 → 用它；开着免提就替她关掉（记下原来开着）
+     *  - 耳机全走了 → 换回手机：免提照接耳机前的样子还原（接耳机前开着免提就开回来；开场就戴着的 → 听筒）
+     *  - 走了一副还剩别的 → 换到剩下那副 */
+    private fun onDevicesSettled() {
+        settleAt = 0L
+        var note: String? = null
+        synchronized(routeLock) {
+            if (!calling) return
+            val now = currentHeadsets()
+            val fresh = now.keys - headsetsSeen
+            val gone = headsetsSeen - now.keys
+            headsetsSeen = now.keys.toSet()
+            if (fresh.isNotEmpty()) {
+                val k = fresh.first()
+                preferHeadset = k
+                if (speakerBeforeHeadset == null) speakerBeforeHeadset = speaker
+                if (speaker) { speaker = false; onSpeaker(false) }
+                note = "耳机接上了：" + headsetName(now[k]) + "，换过去…"
+            } else if (gone.isNotEmpty()) {
+                val p = preferHeadset
+                if (p != null && p in gone) preferHeadset = null
+                if (now.isEmpty()) {
+                    val back = speakerBeforeHeadset ?: speaker
+                    speakerBeforeHeadset = null
+                    if (back != speaker) { speaker = back; onSpeaker(back) }
+                    note = "耳机断开了，换回" + (if (speaker) "免提" else "听筒")
+                }
+            }
+            applyRoute(force = fresh.isNotEmpty() || gone.isNotEmpty())
+        }
+        note?.let { routeNote(it) }
+    }
+
+    /** 0.115 11 及以下（调用方持 routeLock）：蓝牙耳机在、没开免提 → 起 SCO（连上的广播来了再 setBluetoothScoOn）；否则把 SCO 关掉。
+     *  有线耳机系统自己会走。以前是没开免提就 start+setBluetoothScoOn 一起下（不管有没有蓝牙耳机），开免提时也不关 SCO */
+    @Suppress("DEPRECATION")
+    private fun applyRouteLegacy(force: Boolean) {
+        val btThere = try {
+            audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+        } catch (_: Exception) { false }
+        try {
+            if (!speaker && btThere) {
+                if (!scoWanted || (force && !scoUp)) { scoWanted = true; scoRetries = 0; audioManager.startBluetoothSco() }
+            } else if (scoWanted) {
+                scoWanted = false; scoUp = false
+                audioManager.isBluetoothScoOn = false
+                audioManager.stopBluetoothSco()
+            }
+            audioManager.isSpeakerphoneOn = speaker
+        } catch (_: Exception) {}
+    }
+
+    /** 0.115 11 及以下：挂上「蓝牙 SCO 状态」广播（系统发的） */
+    private fun registerScoReceiver() {
+        val r = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: android.content.Intent?) {
+                if (isInitialStickyBroadcast) return   // 注册时补发的是上一回的状态（可能是上一通留下的），不算
+                onScoState(i?.getIntExtra(AudioManager.EXTRA_SCO_AUDIO_STATE, -1) ?: -1)
+            }
+        }
+        try {
+            androidx.core.content.ContextCompat.registerReceiver(
+                context, r, android.content.IntentFilter(AudioManager.ACTION_SCO_AUDIO_STATE_UPDATED),
+                androidx.core.content.ContextCompat.RECEIVER_EXPORTED   // 系统广播；这条只在 11 及以下走，那里这个参数本来就不起作用
+            )
+            scoReceiver = r
+        } catch (_: Exception) {}
+    }
+
+    /** 0.115 11 及以下（主线程）：SCO 连上 → setBluetoothScoOn(true) + 重钉麦；
+     *  我们要着蓝牙却断了/出错（刚连上的耳机头一回常这样）→ 2 秒后再起，最多 3 回 */
+    private fun onScoState(st: Int) {
+        val note = synchronized(routeLock) { scoStateLocked(st) }
+        note?.let { routeNote(it) }
+    }
+
+    /** onScoState 的正文（持 routeLock）。返回要挂到状态行上的提示，没有就 null */
+    @Suppress("DEPRECATION")
+    private fun scoStateLocked(st: Int): String? {
+        if (!calling || !scoWanted) return null
+        if (st == AudioManager.SCO_AUDIO_STATE_CONNECTED) {
+            scoUp = true; scoRetries = 0; micDirty = true
+            try { audioManager.isBluetoothScoOn = true } catch (_: Exception) {}
+            return "蓝牙耳机接上了"
+        }
+        if (st != AudioManager.SCO_AUDIO_STATE_DISCONNECTED && st != AudioManager.SCO_AUDIO_STATE_ERROR) return null   // CONNECTING 之类 不管
+        scoUp = false
+        try { audioManager.isBluetoothScoOn = false } catch (_: Exception) {}
+        if (scoRetries < 3) {
+            scoRetries++
+            mainHandler.removeCallbacks(scoRetry)
+            mainHandler.postDelayed(scoRetry, 2000L)
+            return null
+        }
+        return "蓝牙耳机的通话声道没接上，还在用手机（点两下免提能再试一次）"
+    }
+
+    @Suppress("DEPRECATION")
+    private fun retrySco() {
+        synchronized(routeLock) {
+            if (!calling || !scoWanted || scoUp) return
+            try { audioManager.startBluetoothSco() } catch (_: Exception) {}
+        }
+    }
+
+    /** 0.115 路由提示（耳机接上了/断开了/没接上）：在状态行多挂 2.5 秒，再让每秒的诊断行盖掉 */
+    private fun routeNote(s: String) {
+        noteUntil = android.os.SystemClock.elapsedRealtime() + 2500
+        onState(s)
+    }
+
+    /** 0.115 设备的"身份"：类型+地址（端口 id 每次重连都变，这个不变） */
+    private fun devKey(d: android.media.AudioDeviceInfo) = "${d.type}/${d.address}"
+
+    private fun sameDevice(a: android.media.AudioDeviceInfo?, b: android.media.AudioDeviceInfo?) =
+        a != null && b != null && a.type == b.type && a.address == b.address
+
+    /** 0.115 此刻在场的耳机（devKey → 设备）。12+ 看能选作通话设备的那些；老系统看输出设备 */
+    private fun currentHeadsets(): Map<String, android.media.AudioDeviceInfo> {
+        val list: List<android.media.AudioDeviceInfo> = try {
+            if (android.os.Build.VERSION.SDK_INT >= 31) audioManager.availableCommunicationDevices
+            else audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).toList()
+        } catch (_: Exception) { emptyList() }
+        return list.filter { it.type in HEADSET_TYPES }.associateBy { devKey(it) }
+    }
+
+    /** 0.115 挑耳机：最近接上的那副还在就用它，不然按系统列表顺序的第一副（跟 0.95 开场的挑法一样） */
+    private fun pickHeadset(devices: List<android.media.AudioDeviceInfo>): android.media.AudioDeviceInfo? {
+        val hs = devices.filter { it.type in HEADSET_TYPES }
+        val p = preferHeadset
+        return (if (p == null) null else hs.firstOrNull { devKey(it) == p }) ?: hs.firstOrNull()
+    }
+
+    /** 0.115 状态行上的耳机名：蓝牙/USB 的带上产品名（如「蓝牙耳机（OPPO Enco Air2）」）；有线的产品名多半是手机型号，不带 */
+    private fun headsetName(d: android.media.AudioDeviceInfo?): String {
+        if (d == null) return "耳机"
+        val kind = devName(d.type)
+        val named = d.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+            d.type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET || d.type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+        val pn = d.productName?.toString()?.trim().orEmpty()
+        return if (named && pn.isNotEmpty()) "$kind（$pn）" else kind
+    }
 
     /** 0.112 现在该用哪个麦：通话实际走哪副耳机就用那副耳机的麦；null = 交还系统（免提/听筒/没麦的有线耳机/蓝牙 SCO 还没连上）。
      *  只看"实际走的"通话设备、不看我们要的：SCO 没连上就钉蓝牙麦 会录到一片空白，比手机麦还糟 */
@@ -289,7 +581,13 @@ class AudioEngine(
         var s = if (got == null) "麦未知" else devName(got) + "麦"
         if (want != null && want != got) s += "(要${devName(want)}麦)"
         if (android.os.Build.VERSION.SDK_INT >= 31) {
-            s += " 声:" + devName(try { audioManager.communicationDevice?.type } catch (_: Exception) { null })
+            val cur = try { audioManager.communicationDevice } catch (_: Exception) { null }
+            s += " 声:" + devName(cur?.type)
+            // 0.115 要了耳机还没换过去：「(正在换蓝牙耳机)」；要了三回都没换过去：「(蓝牙耳机没接上)」
+            val rw = routeWant
+            if (rw != null && rw.type in HEADSET_TYPES && !sameDevice(cur, rw)) {
+                s += if (routeGaveUp) "(${devName(rw.type)}没接上)" else "(正在换${devName(rw.type)})"
+            }
         }
         if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) s += " 非通话模式"
         return s
@@ -301,17 +599,16 @@ class AudioEngine(
     private fun startCapture() {
         if (capturing) return
         capturing = true
+        val gen = callGen.get()   // 0.115 这一通的代数：挂断后没及时退出的录音线程靠它认出自己是上一通的
         captureThread = Thread({
             val minBuf = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
             )
-            val rec = try {
-                AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION, SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, FRAME_BYTES * 8)
-                )
+            // 0.115 var：钉的麦迟迟挪不过去时录音会整个重开（reopenRecorder）
+            var rec = try {
+                buildRecorder(minBuf)
             } catch (e: Exception) { onState("录音初始化失败：${e.message}"); capturing = false; return@Thread }
-            if (rec.state != AudioRecord.STATE_INITIALIZED) { onState("录音设备不可用"); capturing = false; return@Thread }
+            if (rec.state != AudioRecord.STATE_INITIALIZED) { rec.release(); onState("录音设备不可用"); capturing = false; return@Thread }
             micDirty = false; pinMic(rec)   // 0.112 开录前先钉一次：有线/USB 这时就钉上；蓝牙要等 SCO 连上、通话设备回调再钉
             rec.startRecording()
             currentRec = rec
@@ -324,9 +621,30 @@ class AudioEngine(
             var inSpeech = false
             var peak = 0.0
             var lastShow = 0L
+            var lastPinCheck = 0L   // 0.115 上回看「钉的麦挪过去没」的时刻（半秒看一回，不每帧问系统）
+            var stuckSince = 0L     // 0.115 钉了耳机麦、录音却还在别的麦上：从什么时候开始的（0 = 没卡着）
+            var reopenedFor = -1    // 0.115 已经为哪个麦重开过录音：每个麦只重开一回，还不行就留着状态行上的「(要X麦)」给我查
             try {
-                while (capturing) {
+                while (capturing && gen == callGen.get()) {
                     if (micDirty) { micDirty = false; pinMic(rec) }   // 0.112 切过免提/换过耳机/SCO 刚连上：重钉麦
+                    // 0.115 兜底：钉了耳机麦，过了 REOPEN_AFTER_MS 录音还在别的麦上 → 趁她没在说话把录音整个重开一回，新的开录前就钉好。
+                    // （0928 那通：中途换过设备，录音一直留在手机麦——那时还没有钉麦；钉麦在这台 OPPO 上通话中途生不生效还没实测过。）
+                    // 她说到一半不动：重开会断一两百毫秒
+                    if (!inSpeech) {
+                        val t = android.os.SystemClock.elapsedRealtime()
+                        if (t - lastPinCheck >= 500) {
+                            lastPinCheck = t
+                            val pref = rec.preferredDevice
+                            if (pref == null || rec.routedDevice?.id == pref.id) {
+                                stuckSince = 0L
+                            } else if (stuckSince == 0L) {
+                                stuckSince = t
+                            } else if (t - stuckSince >= REOPEN_AFTER_MS && reopenedFor != pref.id) {
+                                reopenedFor = pref.id; stuckSince = 0L
+                                rec = reopenRecorder(rec, minBuf)
+                            }
+                        }
+                    }
                     val n = rec.read(frame, 0, FRAME_BYTES)
                     if (n <= 0) continue
                     // 0.113 流到一半换过连接（断线/重连）：这个 sid 是上一条连接上开的，服务端那边自己收尾，新连接上一个字不补；
@@ -358,7 +676,8 @@ class AudioEngine(
                     // 0.107 诊断：没在说话时每秒刷一次状态行「麦 · 这一秒最大音量 · 门槛」——她说话时数字没过门槛=麦的问题；过了却没出字=后面的问题
                     if (level > peak) peak = level
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (!inSpeech && !muted && now - lastShow >= 1000) {   // 我在说话时不刷 免得盖掉「辰在说…」
+                    // 0.115 路由提示（耳机接上了/断开了/没接上）挂着的那两三秒也不刷
+                    if (!inSpeech && !muted && now - lastShow >= 1000 && now >= noteUntil) {   // 我在说话时不刷 免得盖掉「辰在说…」
                         pinMic(rec)   // 0.112 兜底：两边都没说话时每秒对一次该用的麦——回调漏了/来晚了也能跟上
                         onState("听着呢 · ${micLabel()} · 音量${peak.toInt()}/门槛${gate.toInt()}")
                         peak = 0.0; lastShow = now
@@ -397,7 +716,8 @@ class AudioEngine(
                 if (curSid != null) { try { streamEnd(utter, cancel = true) } catch (_: Exception) {} }
                 curSid = null
                 userSpeaking = false
-                currentRec = null
+                if (currentRec === rec) currentRec = null   // 0.115 只清自己的（上一通剩下的线程别把这一通的清掉）
+                try { rec.setPreferredDevice(null) } catch (_: Exception) {}   // 0.115 挂断把钉的麦也松开（马上就释放，这里是明着收尾）
                 try { rec.stop() } catch (_: Exception) {}
                 rec.release()
             }
@@ -408,6 +728,39 @@ class AudioEngine(
         capturing = false
         captureThread?.join(1500)
         captureThread = null
+    }
+
+    /** 0.115 新建一个通话录音器（还没开录）。构造失败会抛；没初始化成功的由调用方看 state */
+    @SuppressLint("MissingPermission")
+    private fun buildRecorder(minBuf: Int) = AudioRecord(
+        MediaRecorder.AudioSource.VOICE_COMMUNICATION, SAMPLE_RATE,
+        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, maxOf(minBuf, FRAME_BYTES * 8)
+    )
+
+    /** 0.115 录音整个重开（只在录音线程上、她没在说话时调）：先停旧的；新的开录前就钉好麦（开录那一下按钉的麦和当时的通话设备选输入，
+     *  比录着录着再挪可靠）；新的建不出来/开不了录 → 旧的接着录 */
+    @SuppressLint("MissingPermission")
+    private fun reopenRecorder(old: AudioRecord, minBuf: Int): AudioRecord {
+        try { old.stop() } catch (_: Exception) {}
+        val fresh = try { buildRecorder(minBuf) } catch (_: Exception) { null }
+        if (fresh != null) {
+            if (fresh.state == AudioRecord.STATE_INITIALIZED) {
+                pinMic(fresh)
+                val ok = try {
+                    fresh.startRecording()
+                    fresh.recordingState == AudioRecord.RECORDSTATE_RECORDING
+                } catch (_: Exception) { false }
+                if (ok) {
+                    currentRec = fresh
+                    try { old.release() } catch (_: Exception) {}
+                    return fresh
+                }
+                try { fresh.stop() } catch (_: Exception) {}
+            }
+            fresh.release()
+        }
+        try { old.startRecording() } catch (_: Exception) {}
+        return old
     }
 
     private fun rms(buf: ByteArray, n: Int): Double {
@@ -504,11 +857,12 @@ class AudioEngine(
 
     private fun startPlayer() {
         if (playThread != null) return
+        val gen = callGen.get()   // 0.115 这一通的代数：上一通剩下的放音线程靠它认出自己，不再播、不再从队列里取
         playThread = Thread({
-            while (capturing || playQueue.isNotEmpty()) {
+            while (gen == callGen.get() && (capturing || playQueue.isNotEmpty())) {
                 val url = try { playQueue.take() } catch (_: InterruptedException) { break }
                 if (url == "__stop__") break
-                playOne(url)
+                playOne(url, gen)
             }
         }, "chen-play").apply { start() }
     }
@@ -517,13 +871,17 @@ class AudioEngine(
         playQueue.clear()
         playQueue.offer("__stop__")
         try { player?.stop() } catch (_: Exception) {}
+        // 0.115 stop() 不会触发「播完」回调：正在播的那句，放音线程原来要在 done.wait 里干等满 60 秒（下面 join 1.5 秒早超时了），
+        // 队列里的 __stop__ 就留给了下一通新开的放音线程——它一上来拿到 __stop__ 就退出，下一通我的声音出不来。这里直接叫醒
+        currentDone?.let { d -> synchronized(d) { d.notifyAll() } }
         player?.release(); player = null
         playThread?.join(1500)
         playThread = null
+        playQueue.clear()   // 0.115 没人取走的 __stop__ 不留给下一通
         muted = false
     }
 
-    private fun playOne(audioUrl: String) {
+    private fun playOne(audioUrl: String, gen: Int) {
         val full = "https://${BuildConfig.SERVER_HOST}:${BuildConfig.SERVER_PORT}$audioUrl"
         val file = File(context.cacheDir, "reply_" + audioUrl.substringAfterLast('/'))
         try {
@@ -536,9 +894,11 @@ class AudioEngine(
         // 0.96 轮流说：她正说着就先别开口，等她这句说完（静音 1.5 秒发出去；0.113 流式是 1.1 秒）再播；
         // 最多等 WAIT_TURN_MS，还在说就开口——capture 那边会先把她已说的半句发出去，不扔
         val t0 = android.os.SystemClock.elapsedRealtime()
-        while (userSpeaking && capturing && android.os.SystemClock.elapsedRealtime() - t0 < WAIT_TURN_MS) {
+        while (userSpeaking && capturing && gen == callGen.get() && android.os.SystemClock.elapsedRealtime() - t0 < WAIT_TURN_MS) {
             try { Thread.sleep(50) } catch (_: InterruptedException) { break }
         }
+        // 0.115 下载/等她说完的这会儿挂断了（或者已经是下一通了）：这句作废——以前会在挂断后自己冒出来，或者混进下一通
+        if (gen != callGen.get()) { file.delete(); return }
         muted = true
         onState("辰在说…")
         val done = Object()
@@ -567,9 +927,11 @@ class AudioEngine(
             onState("播放失败：${e.message}")
         } finally {
             file.delete()
-            currentDone = null
-            muted = false
-            if (capturing) onState("听着呢 · " + micLabel())
+            if (gen == callGen.get()) {   // 0.115 上一通剩下的线程不碰这一通的状态
+                currentDone = null
+                muted = false
+                if (capturing) onState("听着呢 · " + micLabel())
+            }
         }
     }
 }
