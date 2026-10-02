@@ -172,6 +172,8 @@ fun JetConversation(onCall: () -> Unit) {
     var showCard by remember { mutableStateOf(false) }
     var showHistory by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
+    // 0.116 分享进来的图在 ShareInbox 里后台传：切回聊天也要看得见在传
+    val shareSending by me.chen.laidian.ShareInbox.sending.collectAsState()
     // 0915 她：点开图能翻整个聊天里的图——看图器放在这一层 拿全部图的顺序列表
     var viewerUrl by remember { mutableStateOf<String?>(null) }
     val allImages = remember(msgs) { msgs.flatMap { m -> if (m.msgType == "images") m.images else if (m.msgType == "image" && m.media != null) listOf(m.media) else emptyList() } }
@@ -324,7 +326,7 @@ fun JetConversation(onCall: () -> Unit) {
                 onFav = { m -> scope.launch { val ok = withContext(Dispatchers.IO) { ChatApi.addFavorite(ctx, m) }; Toast.makeText(ctx, if (ok) "已收藏" else "收藏失败", Toast.LENGTH_SHORT).show() } },
                 onCopy = { m -> (ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).setPrimaryClip(ClipData.newPlainText("msg", m.text)); Toast.makeText(ctx, "已复制", Toast.LENGTH_SHORT).show() })
             }
-            if (sending) Text("图片上传中…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
+            if (sending || shareSending) Text("图片上传中…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
             if (status == "thinking") Text("辰在想…", fontSize = 12.sp, color = LocalSkin.current.muted, modifier = Modifier.padding(start = 16.dp, bottom = 4.dp))
             replyTo?.let { q ->
                 Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface).padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {

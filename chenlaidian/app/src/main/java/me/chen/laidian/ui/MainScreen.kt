@@ -151,6 +151,9 @@ fun MainScreen() {
             }
         }
     }
+    // 0.116 别的 app「分享 → 发给辰」：ShareActivity 拷好的图在 ShareInbox 里，在哪个 tab 都弹；发出去就切到聊天看它上屏
+    val shared by me.chen.laidian.ShareInbox.pending.collectAsState()
+    if (shared.isNotEmpty()) ShareConfirmDialog(shared, onSent = { tab = 0 })
 }
 
 @Composable

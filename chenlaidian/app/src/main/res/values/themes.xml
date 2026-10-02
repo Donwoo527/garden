@@ -7,4 +7,13 @@
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
     </style>
+
+    <!-- 0.116 分享入口：整窗透明不露面（Theme.NoDisplay 要 onResume 前就 finish，拷图是异步的用不了）；
+         系统栏也透明，不然拷图那一下相册顶上会闪一条 Material 默认紫 -->
+    <style name="Theme.Chen.ShareTranslucent" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>

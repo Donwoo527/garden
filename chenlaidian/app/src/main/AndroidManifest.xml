@@ -54,6 +54,23 @@
 
         <activity android:name=".UsageActivity" android:exported="false" />
 
+        <!-- 0.116 相册（或任何 app）选图 → 分享 →「发给辰」。单独一个不露面的 Activity 接，拷完图把 app 拉到前台弹确认框；
+             不往 MainActivity 上挂：分享拉起的会落进相册的任务里另起一份。taskAffinity 空 = 万一带 NEW_TASK 来也不掺进 app 自己的任务（通话页在那儿） -->
+        <activity
+            android:name=".ShareActivity"
+            android:label="发给辰"
+            android:theme="@style/Theme.Chen.ShareTranslucent"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".CallActivity"
             android:theme="@style/Theme.Chen.CallTranslucent"

@@ -6,4 +6,6 @@
     <cache-path name="files" path="files/" />
     <!-- 0926 应用内自更新：新版 apk 下到 cache/update/ 再交给系统安装器 -->
     <cache-path name="update" path="update/" />
+    <!-- 0.116 分享进来的图先拷到这里；发送时照拍照那条用 FileProvider 地址读（getType 才认得出 png/gif） -->
+    <cache-path name="share" path="share/" />
 </paths>
