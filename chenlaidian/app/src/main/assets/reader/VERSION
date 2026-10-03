@@ -1,4 +1,5 @@
 foliate-js 78914aef4466eb960965702401634c2cb348e9b1 (2026-05-01) https://github.com/johnfactotum/foliate-js
 拷贝日期 2026-09-29；只带运行需要的模块：view/epub/epubcfi/progress/overlayer/text-walker/paginator/fixed-layout/search/comic-book/fb2/mobi/pdf/tts
 vendor：zip.js(BSD-3) fflate.js(MIT) pdfjs 5.x(Apache-2.0；pdf.mjs+pdf.worker.mjs+两份css+cmaps+standard_fonts，.map 没带)
+0.117 补 vendor/pdfjs/wasm/：pdfjs-dist 5.5.207 的 wasm/ 整目录原样（openjpeg/jbig2/qcms + 许可证）；pdf.js 本体与这版逐字节一致
 没带：reader.html/reader.js/ui/（示例阅读器 我们自己写 index.html+reader.js）、dict/opds/quote-image/uri-template/footnotes（用不上）

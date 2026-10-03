@@ -123,6 +123,12 @@ export const makePDF = async file => {
         range: transport,
         cMapUrl: pdfjsPath('cmaps/'),
         standardFontDataUrl: pdfjsPath('standard_fonts/'),
+        // 0.117 JPX（JPEG2000）图要 wasm/ 里的 openjpeg；不给 wasmUrl 这种扫描件整页白、不报错
+        wasmUrl: pdfjsPath('wasm/'),
+        // 0.117 给了 wasmUrl 后 pdf.js 默认改让 worker 自己去取 cmaps/字体/wasm；还是留在主线程取（老 WebView 拦不到 worker 发的请求）
+        useWorkerFetch: false,
+        // 0.117 pdf.js 在 Chromium 上本就关 ImageDecoder（有坏图 bug），但它靠 window.chrome 认 Chromium，安卓 WebView 没这个对象会认错
+        isImageDecoderSupported: false,
         isEvalSupported: false,
     }).promise
 
