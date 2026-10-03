@@ -207,7 +207,7 @@ const highlight = (text, note) => {
 }
 
 // ---------- 点按翻页 ----------
-// 左三分之一上一页、右三分之一下一页、中间叫 Kotlin 收放顶栏。滑动翻页 paginator 自带。
+// 左三分之一上一页、右三分之一下一页、中间叫 Kotlin 收放顶栏。滑动翻页 EPUB 是 paginator 自带的，固定版式（PDF）的在下面。
 const onTap = (e, doc) => {
     if (e.defaultPrevented) return                         // 链接 view.js 已经接了
     if (e.target?.closest?.('a[href]')) return
@@ -228,6 +228,48 @@ const onTap = (e, doc) => {
     else send('onTap')
 }
 document.addEventListener('click', e => onTap(e, document))
+
+// ---------- 滑动翻页（只管固定版式） ----------
+// 0.120 PDF 走的 fixed-layout.js 一行触摸处理都没有，她只能点。EPUB 的 paginator 自己会滑，再挂一份就是一滑翻两页，
+// 所以只挂固定版式：每个页框 iframe 的 doc（onLoad 里）+ 主 document（页框外的留白）。
+// 判定照 Readest（usePagination.ts）：松手时 横向位移 > 纵向、> 30px、速度 > 0.2px/ms 才翻，不跟手。
+// 用 screenX/Y：固定版式 EPUB 的页框是 transform 缩放的，iframe 里的 clientX 跟手指真走的距离对不上
+const swipe = { doc: null, x: 0, y: 0, t: 0, eatClickUntil: 0 }
+
+const listenSwipe = doc => {
+    const opts = { passive: true }
+    doc.addEventListener('touchstart', e => {
+        swipe.eatClickUntil = 0                                  // 新的一下开始了，上一下补发的 click 不会再来
+        const t = S.view?.isFixedLayout && e.touches.length === 1 ? e.changedTouches[0] : null   // 两指不算
+        swipe.doc = t ? doc : null
+        if (t) Object.assign(swipe, { x: t.screenX, y: t.screenY, t: e.timeStamp })
+    }, opts)
+    doc.addEventListener('touchcancel', () => { swipe.doc = null }, opts)   // 长按出选字、系统收走手势
+    doc.addEventListener('touchend', e => {
+        const t = e.changedTouches[0]
+        if (swipe.doc !== doc || !t) return                      // 起点不在这个 doc：各 doc 的 timeStamp 起点不同，不能混算
+        swipe.doc = null
+        const dx = t.screenX - swipe.x, dy = t.screenY - swipe.y
+        // 手指挪开过就不是点按：浏览器万一还补发一次 click，别让它再翻一页或收放顶栏（Readest 也吞这一下）
+        if (Math.hypot(dx, dy) >= 15) swipe.eatClickUntil = Date.now() + 750
+        if (Math.abs(dx) <= Math.abs(dy) || Math.abs(dx) <= 30 || Math.abs(dx) / (e.timeStamp - swipe.t || 1) <= 0.2) return
+        try {
+            const sel = doc.getSelection?.()
+            if (sel && sel.type === 'Range' && sel.toString()) return   // 她在选字
+        } catch (err) { /* ignore */ }
+        // 左滑 = 把右边那页拉过来 = 点右三分之一（goRight）；RTL 的书 view 自己把 goRight 换成上一页，跟点按一致
+        if (dx < 0) S.view?.goRight()
+        else S.view?.goLeft()
+    }, opts)
+    // capture 阶段吞：赶在 view.js 的链接处理和 onTap 前面
+    doc.addEventListener('click', e => {
+        if (Date.now() >= swipe.eatClickUntil) return
+        swipe.eatClickUntil = 0
+        e.preventDefault()
+        e.stopImmediatePropagation()
+    }, true)
+}
+listenSwipe(document)
 
 // ---------- 事件 ----------
 const emitRelocate = payload => {
@@ -308,6 +350,7 @@ const onLoad = ({ detail: { doc, index } }) => {
     if (!doc || S.tapped.has(doc)) return
     S.tapped.add(doc)
     doc.addEventListener('click', e => onTap(e, doc))
+    if (S.view?.isFixedLayout) listenSwipe(doc)   // 0.120 EPUB 的章节 doc 不挂（paginator 自己挂了）
 }
 
 const onShowAnnotation = ({ detail: { value, range } }) => {
