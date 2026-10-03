@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.view.ViewGroup
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -285,7 +286,11 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
     }
 
     Box(Modifier.fillMaxSize().background(skin.bg)) {
-        AndroidView(factory = { host.webView }, modifier = Modifier.fillMaxSize())
+        // 0.119 她手机上整片米色的真凶：不给 layoutParams，AndroidView 默认挂成 WRAP_CONTENT，
+        // WebView 见到 WRAP_CONTENT 就把网页布局高度强制成 0——innerHeight 767、body 高 0（0.118 诊断实测），页画好了塞在 0 高的框里
+        AndroidView(factory = {
+            host.webView.apply { layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT) }
+        }, modifier = Modifier.fillMaxSize())
         if (stripVisible) {
             // 顶部一条细状态：书名 · 章节 · 百分比；点一下收起，点页面中间再出来
             Row(
