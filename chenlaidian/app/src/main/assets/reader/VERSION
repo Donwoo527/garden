@@ -4,3 +4,4 @@ vendor：zip.js(BSD-3) fflate.js(MIT) pdfjs 5.x(Apache-2.0；pdf.mjs+pdf.worker.
 0.117 补 vendor/pdfjs/wasm/：pdfjs-dist 5.5.207 的 wasm/ 整目录原样（openjpeg/jbig2/qcms + 许可证）；pdf.js 本体与这版逐字节一致
 没带：reader.html/reader.js/ui/（示例阅读器 我们自己写 index.html+reader.js）、dict/opds/quote-image/uri-template/footnotes（用不上）
 0.118 pdf.js 的 render() 拆成 render + renderSteps 加诊断打点、makePDF 把 pdf 交给 __readerDiag（都是 globalThis.__readerDiag?.xxx，不挂就是空操作）；诊断本体在 reader/diag.js
+0.121 fixed-layout.js 的 goToSpread 补一处：同一跨页内换到另一边时记下 #side、报 relocate（原版只重画：跳页码落到同跨页另一页时进度条/上报都停在原页，下次重画还会翻回去）

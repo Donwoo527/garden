@@ -35,9 +35,12 @@ import java.io.InputStream
 class ReaderHost(ctx: Context, private val listener: Listener) {
     interface Listener {
         fun onReady()
-        /** 书打开了：{title, author, sections, toc, fixed} */
+        /** 书打开了：{title, author, sections, toc, fixed, pageMode}（0.121 pageMode：fixed=PDF 物理页 / list=书里的页码表 / loc=按字数估的页） */
         fun onBookOpened(info: JSONObject)
-        /** 翻页/定位：{event: open|page|jump, dir, reason, cfi, fraction, chapter, index, text} */
+        /**
+         * 翻页/定位：{event: open|page|jump, dir, reason, cfi, fraction, chapter, index, text,
+         *            pos, page, pages, pageLabel}（0.121 底栏用：pos=这页在进度条上的位置 0..1，page/pages=第几页/共几页，page=0 是没编号的页）
+         */
         fun onRelocate(o: JSONObject)
         /** 点了页面中间：收/放顶栏 */
         fun onTap()
@@ -185,6 +188,10 @@ class ReaderHost(ctx: Context, private val listener: Listener) {
     fun next() = js("reader.next()")
     fun prev() = js("reader.prev()")
     fun goTo(cfi: String) = js("reader.goTo(${q(cfi)})")
+    /** 0.121 跳到第 n 页（从 1 起，按开书时定的 pageMode 算）。越界 JS 那边限幅；就在这一页不动。落地后照常来一条 onRelocate（event=jump） */
+    fun goToPage(n: Int) = js("reader.goToPage($n)")
+    /** 0.121 按全书比例跳（0..1）：进度条在 list 模式下松手用（纸书页码和位置对不上，没法按页号跳） */
+    fun goToFraction(f: Float) = js("reader.goToFraction($f)")
     fun setFontSize(px: Int) = js("reader.setFontSize($px)")
     fun setTheme(bg: String, ink: String, accent: String) = js("reader.setTheme(${themeJson(bg, ink, accent)})")
     /** 辰指的那句：当前章节里找到就划线冒气泡，找不到 JS 静默 */

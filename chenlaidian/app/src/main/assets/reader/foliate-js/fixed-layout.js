@@ -265,6 +265,14 @@ export class FixedLayout extends HTMLElement {
     async goToSpread(index, side, reason) {
         if (index < 0 || index > this.#spreads.length - 1) return
         if (index === this.#index) {
+            // 0.121（一起读）同一跨页里换到另一边——竖屏一屏只露一页，这就是换了一页（PDF 第 2→3、3→2 页都是这种）。
+            // 原版只按 side 重画一次：#side 不记（下次 ResizeObserver 重画又翻回原页）、也不报 relocate（进度条和上报停在原页）
+            if (side && side !== this.#side && !this.#center) {
+                this.#side = side
+                this.#render()
+                this.#reportLocation(reason)
+                return
+            }
             this.#render(side)
             return
         }

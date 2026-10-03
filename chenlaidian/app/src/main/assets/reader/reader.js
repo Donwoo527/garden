@@ -1,5 +1,6 @@
 // 0929 一起读：套在 foliate-js 外面的一层薄壳。
 // 职责只有三件：开书、把每次翻页（本页原文 + 位置）交给 Kotlin、把辰指的那句话划线并冒气泡。
+// 0.121 加第四件：底栏进度条 / 跳页码要的「第几页 / 共几页 / 进度条位置」随 relocate 一起交，Kotlin 叫 goToPage / goToFraction 跳。
 // Kotlin → JS：window.reader.*；JS → Kotlin：window.Android.*（ReaderBridge）。在浏览器里直接打开也能跑（Android 不存在就只打 console）。
 import { diag } from './diag.js'   // 0.118 PDF 诊断：排第一个，它的 console/报错钩子要在 foliate 之前装好
 import './foliate-js/view.js'
@@ -29,6 +30,9 @@ const S = {
     drawn: new WeakSet(),  // 已经把划线画上去的章节 doc
     tapped: new WeakSet(), // 已经挂了点按翻页的章节 doc
     seq: 0,
+    pageMode: 'loc',       // 0.121 页码怎么算：fixed / list / loc（见「进度条 / 跳页」）
+    pageItems: [],         // list 模式：书里页码表中标数字的那些 [{ n, href }]
+    pageMax: 0,            // list 模式：页码表里最大的页号（当总页数）
 }
 
 // ---------- 样式 ----------
@@ -271,6 +275,115 @@ const listenSwipe = doc => {
 }
 listenSwipe(document)
 
+// ---------- 进度条 / 跳页（0.121） ----------
+// 页码三种算法，开书时定（onBookOpened 带 pageMode 告诉 Kotlin），每条 relocate 带上 pos / page / pages / pageLabel：
+//   fixed：PDF 和固定版式——一节就是一页，页号 = 物理页号（书上印的页码 getPageLabels 这轮不做）
+//   list ：EPUB 自带页码表（page-list，对应纸书页码）而且基本都标数字——显示、跳转都按它
+//   loc  ：其余 EPUB（她的书基本都是）——foliate 的 location（全书每 1500 字节算一页），估出来的
+// pos = 这一页在进度条上的位置（0~1）。PDF 按页号均分，两头正好是第一页和最后一页；
+// EPUB 取这一屏的中点：foliate 给的 fraction 是本页末尾（= 下一页起点），拿它回跳会落到隔壁页；中点怎么回跳都还是这一屏
+const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x))
+const isNum = s => /^\d+$/.test(s)
+const flatPageList = list => (list ?? []).flatMap(x => [x, ...flatPageList(x.subitems)])
+
+const setupPages = view => {
+    S.pageItems = []
+    S.pageMax = 0
+    if (view.isFixedLayout) { S.pageMode = 'fixed'; return }
+    S.pageMode = 'loc'
+    const all = flatPageList(view.book.pageList)
+    const nums = all.map(x => ({ label: String(x.label ?? '').trim(), href: x.href }))
+        .filter(x => isNum(x.label) && x.href)
+        .map(x => ({ n: parseInt(x.label, 10), href: x.href }))
+        .filter(x => x.n > 0)
+    // 只有零星几个数字（或大半是罗马数字之类）就不认这张表，退回 loc
+    if (nums.length >= 10 && nums.length >= all.length * 0.8) {
+        S.pageMode = 'list'
+        S.pageItems = nums
+        S.pageMax = nums.reduce((m, x) => Math.max(m, x.n), 0)
+    }
+}
+
+// detail：renderer 那层 relocate 的 detail（index；分页时还有 fraction = 本屏起点在本节的比例、size = 一屏占本节多少）
+const progressOf = (view, detail, loc) => {
+    const index = detail.index ?? -1
+    if (view.isFixedLayout) {
+        const n = view.book.sections.length
+        const i = clamp(index, 0, Math.max(0, n - 1))
+        return { pos: n > 1 ? i / (n - 1) : 0, page: i + 1, pages: n, pageLabel: String(i + 1) }
+    }
+    const sf = view.getSectionFractions()
+    const a = sf[index] ?? 0, w = (sf[index + 1] ?? 1) - a
+    const f = Number.isFinite(detail.fraction) ? detail.fraction : 0
+    const s = Number.isFinite(detail.size) ? detail.size : 0
+    const pos = clamp(a + (f + s / 2) * w, 0, 1)
+    if (S.pageMode === 'list') {
+        const label = String(loc.pageItem?.label ?? '').trim()   // 书前没编号的几页：pageItem 为空或是罗马数字
+        return { pos, page: isNum(label) ? parseInt(label, 10) : 0, pages: S.pageMax, pageLabel: label }
+    }
+    const pages = loc.location?.total ?? 0
+    // 跟 Kotlin 那边进度条预览的 pageAt 同一个算法：拖到哪显示第几页，松手跳过去就是第几页
+    const page = pages > 0 ? Math.min(Math.floor(pos * pages), pages - 1) + 1 : 0
+    return { pos, page, pages, pageLabel: page ? String(page) : '' }
+}
+
+// EPUB：落到「包含全书位置 f 的那一屏」。不直接用 view.goToFraction：它把节内比例 x 交给 paginator，paginator 用 round(x × (屏数-1)) 反算屏号，
+// 跟正算（第 p 屏占 [p/屏数, (p+1)/屏数)）对不上，瞄任意一点会差出一屏（测过：跳第 57 页落到 58、跳 293 落到 292）。
+// 这里 anchor 给函数——paginator 等那一节载入排好版才调它（同一节直接调），这时屏数已知，换成那一屏的中点再交回去
+const landAt = f => {
+    const view = S.view, r = view.renderer
+    // 照 progress.js 的 getSection 找节（sf 是每节起点，末尾是 1；不计篇幅的节宽度为 0，跳过）
+    const sf = view.getSectionFractions().map(x => x - Number.EPSILON)
+    const last = sf.length - 2
+    if (last < 0) return view.goToFraction(f).catch(e => console.warn(e))
+    let index = 0
+    while (index < last && sf[index + 1] <= f) index++
+    while (index < last && !(sf[index + 1] - sf[index] > 0)) index++
+    const w = sf[index + 1] - sf[index]
+    const x = w > 0 ? clamp((f - sf[index]) / w, 0, 1) : 0
+    const anchor = () => {
+        const T = (r.pages ?? 0) - 2                 // 分页容器前后各多一列空白
+        if (!(T > 0)) return x
+        const p = clamp(Math.floor(x * T), 0, T - 1)
+        return (p + 0.5) / T                         // 第 p 屏的中点：round((p+0.5)/T × (T-1)) 正好是 p
+    }
+    return Promise.resolve(r.goTo({ index, anchor })).catch(e => console.warn(e))
+}
+
+// 跳到第 n 页（从 1 起，按开书时定的算法；越界限幅）。落地后的 relocate 照常走 onRelocate → Kotlin 报一次 jump
+const goToPage = n => {
+    const view = S.view
+    n = Math.round(Number(n))
+    if (!view || !Number.isFinite(n)) return
+    if (view.isFixedLayout) {
+        const i = clamp(n, 1, view.book.sections.length) - 1
+        if (i === view.renderer.index) return            // 就在这一页：不跳，也不会有 relocate
+        return view.goTo(i)                              // PDF 一律按页号：它的 fraction 是本页末尾 (i+1)/N，拿去 goToFraction 会多翻一页
+    }
+    if (S.pageMode === 'list') {
+        n = clamp(n, 1, S.pageMax)
+        // 纸书页码可能跳号（插页、空白页不编号）：没有这一页就落到它前面最近的一页
+        let hit = null
+        for (const x of S.pageItems) if (x.n <= n && (!hit || x.n > hit.n)) hit = x
+        if (hit) return view.goTo(hit.href)
+    }
+    const pages = S.pageMode === 'list' ? S.pageMax : (view.lastLocation?.location?.total ?? 0)
+    if (!pages) return
+    n = clamp(n, 1, pages)
+    // 瞄这一页的中间（Readest pageJump.ts 的 fractionForPage）：瞄边界会因为分页误差落到隔壁页
+    return landAt((n - 0.5) / pages)
+}
+
+// 按全书比例跳（0~1）：进度条在 list 模式下松手用（纸书页码和位置对不上，Kotlin 没法预览页号）
+const goToFraction = f => {
+    const view = S.view
+    f = Number(f)
+    if (!view || !Number.isFinite(f)) return
+    f = clamp(f, 0, 1)
+    if (view.isFixedLayout) return goToPage(Math.round(f * (view.book.sections.length - 1)) + 1)
+    return landAt(f)
+}
+
 // ---------- 事件 ----------
 const emitRelocate = payload => {
     S.lastEmitted = payload
@@ -326,6 +439,7 @@ const onRelocate = e => {
         index: index ?? -1,
         text: pageText(loc),
     }
+    try { Object.assign(payload, progressOf(view, e.detail, loc)) } catch (err) { console.warn(err) }   // 0.121 底栏进度条 / 页码
     redrawAnchors(index)
     const sf = e.detail.fraction
     if (view.isFixedLayout) diag.mark('relocate', { i: index, reason: reason ?? '' })   // 0.118
@@ -373,6 +487,9 @@ const close = () => {
     S.first = true
     S.lastFraction = null
     S.lastEmitted = null
+    S.pageMode = 'loc'
+    S.pageItems = []
+    S.pageMax = 0
 }
 
 // url：https://reader.chen/book/<id>（Kotlin 拦截给文件）；cfi：上次读到的位置（空=从头）；fontPx / theme 开书时一并带来
@@ -409,6 +526,7 @@ const open = async (url, cfi, fontPx, theme, wantDiag) => {
     renderer.setAttribute('gap', '10%')          // 左右各 5%
     renderer.setAttribute('max-column-count', '1')
     renderer.setStyles?.(bookCSS())
+    try { setupPages(view) } catch (e) { console.warn(e) }   // 0.121 赶在第一条 relocate 之前定好页码算法
     renderer.addEventListener('relocate', onRelocate)
     send('onBookOpened', JSON.stringify({
         title: fmtLang(book.metadata?.title),
@@ -416,6 +534,7 @@ const open = async (url, cfi, fontPx, theme, wantDiag) => {
         sections: book.sections?.length ?? 0,
         toc: book.toc?.length ?? 0,
         fixed: !!view.isFixedLayout,
+        pageMode: S.pageMode,
     }))
     try {
         await view.init({ lastLocation: cfi || null, showTextStart: true })
@@ -432,6 +551,8 @@ globalThis.reader = {
     next: () => S.view?.next(),
     prev: () => S.view?.prev(),
     goTo: target => S.view?.goTo(target),
+    goToPage,       // 0.121 跳页码 / 进度条松手（fixed、loc 模式）
+    goToFraction,   // 0.121 进度条松手（list 模式）
     setFontSize: px => { S.fontPx = Math.max(10, Math.min(40, Number(px) || 18)); S.view?.renderer?.setStyles?.(bookCSS()) },
     setTheme: t => { if (t && typeof t === 'object') Object.assign(S.theme, t); applyTheme() },
     highlight,
