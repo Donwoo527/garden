@@ -2,8 +2,10 @@ package me.chen.laidian.reader
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Canvas
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.ConsoleMessage
@@ -73,7 +75,17 @@ class ReaderHost(ctx: Context, private val listener: Listener) {
     /** JS 还没报 onReady 时收到的 open：先存着，ready 了再发 */
     private var pendingOpen: String? = null
 
-    val webView: WebView = WebView(ctx)
+    // 0.118 诊断：数系统画了这个 WebView 几次。她那边 PDF 整片米色——要分清是 WebView 根本没被系统画，还是画了但页里没东西
+    private val drawStats = ReaderDiag.DrawStats()
+    val webView: WebView = object : WebView(ctx) {
+        override fun onDraw(canvas: Canvas) {
+            drawStats.n++
+            if (drawStats.firstAt == 0L) drawStats.firstAt = SystemClock.uptimeMillis()
+            drawStats.lastHw = canvas.isHardwareAccelerated
+            super.onDraw(canvas)
+        }
+    }
+    private val diag = ReaderDiag(ctx, webView, drawStats)
 
     init {
         setup()
@@ -164,9 +176,10 @@ class ReaderHost(ctx: Context, private val listener: Listener) {
     private fun themeJson(bg: String, ink: String, accent: String) =
         JSONObject().put("bg", bg).put("ink", ink).put("accent", accent).toString()
 
-    /** 开书。JS 没就绪就先记着，onReady 时补发 */
-    fun open(bookId: String, cfi: String?, fontPx: Int, bg: String, ink: String, accent: String) {
-        val code = "reader.open(${q(bookUrl(bookId))}, ${q(cfi)}, $fontPx, ${themeJson(bg, ink, accent)})"
+    /** 开书。JS 没就绪就先记着，onReady 时补发。wantDiag：0.118 PDF 开书时页面收诊断、经 onDiag 交回来上传（见 ReaderDiag） */
+    fun open(bookId: String, cfi: String?, fontPx: Int, bg: String, ink: String, accent: String, wantDiag: Boolean = false) {
+        diag.bookId = bookId
+        val code = "reader.open(${q(bookUrl(bookId))}, ${q(cfi)}, $fontPx, ${themeJson(bg, ink, accent)}, $wantDiag)"
         main.post { if (ready) js(code) else pendingOpen = code }
     }
     fun next() = js("reader.next()")
@@ -179,6 +192,7 @@ class ReaderHost(ctx: Context, private val listener: Listener) {
 
     /** 页面离开组合后调（要等 WebView 从视图树摘下来）；之后这个对象不能再用 */
     fun release() {
+        diag.onClose()   // 0.118 还没传出去的诊断趁 WebView 还在补传（之后页面再交来的一律不收）
         dead = true
         main.post {
             try {
@@ -219,5 +233,9 @@ class ReaderHost(ctx: Context, private val listener: Listener) {
 
         @JavascriptInterface
         fun onError(msg: String?) { main.post { listener.onError(msg ?: "未知错误") } }
+
+        /** 0.118 PDF 诊断：页面每次交来的都是到目前为止的整包（diag.js），ReaderDiag 决定什么时候传 */
+        @JavascriptInterface
+        fun onDiag(json: String?, reason: String?) { if (json != null) main.post { diag.onJs(json, reason ?: "") } }
     }
 }

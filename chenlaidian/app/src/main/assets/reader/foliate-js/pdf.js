@@ -12,7 +12,21 @@ const textLayerBuilderCSS = await fetchText(pdfjsPath('text_layer_builder.css'))
 // https://raw.githubusercontent.com/mozilla/pdf.js/refs/tags/v5.5.207/web/annotation_layer_builder.css
 const annotationLayerBuilderCSS = await fetchText(pdfjsPath('annotation_layer_builder.css'))
 
+// 0.118 诊断打点走 globalThis.__readerDiag（reader 的 diag.js 挂的，没挂就全是空操作）：她手机上页框都没出来，要知道停在哪一步
 const render = async (page, doc, zoom) => {
+    const diag = globalThis.__readerDiag
+    const p = page.pageNumber
+    diag?.mark('render', { p, zoom: Math.round(zoom * 1000) / 1000 })
+    try {
+        await renderSteps(page, doc, zoom, diag, p)
+        diag?.mark('done', { p })
+    } catch (e) {
+        diag?.mark('fail', { p, err: String(e?.message ?? e).slice(0, 200) })
+        throw e
+    }
+}
+
+const renderSteps = async (page, doc, zoom, diag, p) => {
     const scale = zoom * devicePixelRatio
     doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
     doc.documentElement.style.transformOrigin = 'top left'
@@ -25,8 +39,13 @@ const render = async (page, doc, zoom) => {
     canvas.height = viewport.height
     canvas.width = viewport.width
     const canvasContext = canvas.getContext('2d')
-    await page.render({ canvasContext, viewport }).promise
+    if (!canvasContext) diag?.mark('noctx', { p, w: canvas.width, h: canvas.height })
+    const task = page.render({ canvasContext, viewport })
+    diag?.task(p, task, canvas)
+    await task.promise
+    diag?.mark('drawn', { p, w: canvas.width, h: canvas.height })
     doc.querySelector('#canvas').replaceChildren(doc.adoptNode(canvas))
+    diag?.mark('canvas', { p })
 
     const container = doc.querySelector('.textLayer')
     const textLayer = new pdfjsLib.TextLayer({
@@ -34,6 +53,7 @@ const render = async (page, doc, zoom) => {
         container, viewport,
     })
     await textLayer.render()
+    diag?.mark('text', { p })
 
     // hide "offscreen" canvases appended to docuemnt when rendering text layer
     // https://github.com/mozilla/pdf.js/blob/642b9a5ae67ef642b9a8808fd9efd447e8c350e2/web/pdf_viewer.css#L51-L58
@@ -131,6 +151,7 @@ export const makePDF = async file => {
         isImageDecoderSupported: false,
         isEvalSupported: false,
     }).promise
+    globalThis.__readerDiag?.pdf(pdf)   // 0.118 诊断：快照里拿它 ping 一下 worker
 
     const book = { rendition: { layout: 'pre-paginated' } }
 

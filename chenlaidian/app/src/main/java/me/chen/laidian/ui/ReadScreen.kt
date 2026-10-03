@@ -258,8 +258,8 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
         })
     }
 
-    // 开书：JS 没就绪 host 会先记着；上次的 cfi 一起带过去（空 = 从头）
-    LaunchedEffect(Unit) { host.open(book.id, book.cfi.ifBlank { null }, fontPx, skin.bg.hex(), skin.ink.hex(), skin.accent.hex()) }
+    // 开书：JS 没就绪 host 会先记着；上次的 cfi 一起带过去（空 = 从头）。0.118 PDF 顺带收诊断传回去（她那边 PDF 整片米色，查卡在哪一步）
+    LaunchedEffect(Unit) { host.open(book.id, book.cfi.ifBlank { null }, fontPx, skin.bg.hex(), skin.ink.hex(), skin.accent.hex(), wantDiag = book.format == "pdf") }
     // 换皮肤书页跟着换色
     LaunchedEffect(skin) { host.setTheme(skin.bg.hex(), skin.ink.hex(), skin.accent.hex()) }
     // 辰指着一句话说：划线 + 气泡（不在当前章 JS 静默）

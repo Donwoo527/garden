@@ -1,6 +1,7 @@
 // 0929 一起读：套在 foliate-js 外面的一层薄壳。
 // 职责只有三件：开书、把每次翻页（本页原文 + 位置）交给 Kotlin、把辰指的那句话划线并冒气泡。
 // Kotlin → JS：window.reader.*；JS → Kotlin：window.Android.*（ReaderBridge）。在浏览器里直接打开也能跑（Android 不存在就只打 console）。
+import { diag } from './diag.js'   // 0.118 PDF 诊断：排第一个，它的 console/报错钩子要在 foliate 之前装好
 import './foliate-js/view.js'
 import { Overlayer } from './foliate-js/overlayer.js'
 
@@ -285,6 +286,7 @@ const onRelocate = e => {
     }
     redrawAnchors(index)
     const sf = e.detail.fraction
+    if (view.isFixedLayout) diag.mark('relocate', { i: index, reason: reason ?? '' })   // 0.118
     if (reason === 'anchor') {
         // 'anchor' 大多是换章过程中的过渡量（旧锚点套在新文档上量出来的一页，随后 navigation 就到）；
         // 真的重排（改字号/转屏）后面没有别的 relocate。所以压 300ms：期间来了别的就丢掉它
@@ -301,7 +303,8 @@ const onRelocate = e => {
     deliver(payload, reason, sf)
 }
 
-const onLoad = ({ detail: { doc } }) => {
+const onLoad = ({ detail: { doc, index } }) => {
+    if (S.view?.isFixedLayout) diag.mark('load', { i: index, url: String(doc?.URL ?? '').slice(0, 12) })   // 0.118 页框 iframe 载入了
     if (!doc || S.tapped.has(doc)) return
     S.tapped.add(doc)
     doc.addEventListener('click', e => onTap(e, doc))
@@ -315,6 +318,7 @@ const onShowAnnotation = ({ detail: { value, range } }) => {
 
 // ---------- 开关书 ----------
 const close = () => {
+    diag.close()
     if (S.held) { clearTimeout(S.held.timer); S.held = null }
     clearTimeout(S.anchorTimer); S.pendingAnchor = null
     hideBubble()
@@ -329,8 +333,10 @@ const close = () => {
 }
 
 // url：https://reader.chen/book/<id>（Kotlin 拦截给文件）；cfi：上次读到的位置（空=从头）；fontPx / theme 开书时一并带来
-const open = async (url, cfi, fontPx, theme) => {
+// wantDiag：0.118 Kotlin 说这本是 PDF，开书前就开始收诊断（固定版式的书不带这个标记也会在解析完后开始收）
+const open = async (url, cfi, fontPx, theme, wantDiag) => {
     close()
+    if (wantDiag) diag.begin(url)
     if (fontPx) S.fontPx = Math.max(10, Math.min(40, Number(fontPx) || 18))
     if (theme && typeof theme === 'object') Object.assign(S.theme, theme)
     applyTheme()
@@ -345,8 +351,10 @@ const open = async (url, cfi, fontPx, theme) => {
     } catch (e) {
         console.error(e)
         send('onError', '打不开这本书：' + (e?.message ?? e))
+        diag.failed(e)
         return
     }
+    diag.opened(view)
     const { book, renderer } = view
     // 书里缺资源（图/字体没打包全）时别整章挂掉：照 foliate 示例的做法换成空
     book.transformTarget?.addEventListener('data', ({ detail }) => {
@@ -372,6 +380,7 @@ const open = async (url, cfi, fontPx, theme) => {
         console.warn('上次位置定不到 从头开始', e)
         try { await view.goToTextStart() } catch (e2) { send('onError', '定位失败：' + (e2?.message ?? e2)) }
     }
+    diag.inited()
 }
 
 globalThis.reader = {
