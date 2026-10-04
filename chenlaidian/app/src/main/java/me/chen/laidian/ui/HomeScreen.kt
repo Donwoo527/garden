@@ -60,6 +60,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.ImageLoader
@@ -70,6 +75,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.chen.laidian.Tls
 import me.chen.laidian.model.Moment
+import me.chen.laidian.model.MomentComment
 import me.chen.laidian.net.ChatApi
 import me.chen.laidian.net.ChatClient
 import me.chen.laidian.net.ImageUtil
@@ -307,6 +313,8 @@ fun MomentsScreen(onBack: () -> Unit) {
     }
 }
 
+private fun whoName(w: String) = if (w == "chen") "辰" else "小陈"
+
 @Composable
 private fun MomentCard(m: Moment, loader: ImageLoader) {
     val ctx = LocalContext.current
@@ -314,6 +322,8 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
     val skin = LocalSkin.current
     val avatarXiaochen by ChatClient.avatarXiaochen.collectAsState()
     var comment by remember { mutableStateOf("") }
+    var replyTo by remember { mutableStateOf<MomentComment?>(null) }   // 0.122 点着哪条评论在回
+    val focus = remember { FocusRequester() }
     val liked = "xiaochen" in m.likes
     WhiteCard(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
         Column(Modifier.padding(12.dp)) {
@@ -337,7 +347,26 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
                 }
                 if (m.likes.isNotEmpty()) Text(m.likes.joinToString("、") { if (it == "chen") "辰" else "小陈" } + " 赞了", fontSize = 12.sp, color = skin.muted)
             }
-            m.comments.forEach { c -> Text("${if (c.who == "chen") "辰" else "小陈"}：${c.text}", fontSize = 13.sp, color = skin.ink, lineHeight = 19.sp, modifier = Modifier.padding(start = 4.dp, top = 2.dp)) }
+            // 0.122 她：评论没法点着某一条回、看着乱→点辰那条=回复辰（再点一下取消），显示「谁 回复 谁：」名字用强调色
+            m.comments.forEach { c ->
+                val head = if (c.replyTo.isNotBlank() && c.replyTo != c.who) "${whoName(c.who)} 回复 ${whoName(c.replyTo)}" else whoName(c.who)
+                val picked = replyTo?.let { it.ts == c.ts && it.who == c.who } == true
+                Text(
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = skin.accent, fontWeight = FontWeight.Medium)) { append(head) }
+                        append("：${c.text}")
+                    },
+                    fontSize = 13.sp, color = skin.ink, lineHeight = 19.sp,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (picked) skin.muted.copy(alpha = 0.15f) else Color.Transparent)
+                        .clickable(enabled = c.who != "xiaochen") {
+                            replyTo = if (picked) null else c
+                            if (!picked) focus.requestFocus()
+                        }
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
                 // 0.85 她：胶囊 不用那么粗——34 高
                 Box(Modifier.weight(1f).heightIn(min = 34.dp).sunken(17.dp).padding(horizontal = 12.dp, vertical = 7.dp), contentAlignment = Alignment.CenterStart) {
@@ -345,15 +374,16 @@ private fun MomentCard(m: Moment, loader: ImageLoader) {
                         value = comment, onValueChange = { comment = it }, singleLine = true,
                         cursorBrush = SolidColor(skin.ink),
                         textStyle = LocalTextStyle.current.copy(color = skin.ink, fontSize = 13.sp),
-                        modifier = Modifier.fillMaxWidth(),
-                        decorationBox = { inner -> Box { if (comment.isEmpty()) Text("评论", fontSize = 13.sp, color = skin.muted); inner() } },
+                        modifier = Modifier.fillMaxWidth().focusRequester(focus),
+                        decorationBox = { inner -> Box { if (comment.isEmpty()) Text(replyTo?.let { "回复 ${whoName(it.who)}：" } ?: "评论", fontSize = 13.sp, color = skin.muted); inner() } },
                     )
                 }
                 val canSend = comment.isNotBlank()
                 Box(
                     Modifier.padding(start = 6.dp).size(34.dp).clickable(enabled = canSend) {
                         val t = comment.trim(); comment = ""
-                        scope.launch { withContext(Dispatchers.IO) { ChatApi.commentMoment(ctx, m.id, t) } }
+                        val r = replyTo; replyTo = null
+                        scope.launch { withContext(Dispatchers.IO) { ChatApi.commentMoment(ctx, m.id, t, r?.who ?: "", r?.text ?: "") } }
                     },
                     contentAlignment = Alignment.Center,
                 ) { Icon(Icons.Default.Send, contentDescription = "发评论", tint = if (canSend) skin.accent else skin.muted, modifier = Modifier.size(20.dp)) }

@@ -85,8 +85,12 @@ object ChatApi {
     fun likeMoment(ctx: Context, id: String): Boolean =
         postJson(ctx, "/moments/react", JSONObject().put("id", id).put("like", "xiaochen"))
 
-    fun commentMoment(ctx: Context, id: String, text: String): Boolean =
-        postJson(ctx, "/moments/react", JSONObject().put("id", id).put("comment", JSONObject().put("who", "xiaochen").put("text", text)))
+    /** 0.122 replyTo/replyText：点着某条评论回的，带上回的是谁、那条说了啥（服务端拿来提醒辰） */
+    fun commentMoment(ctx: Context, id: String, text: String, replyTo: String = "", replyText: String = ""): Boolean {
+        val c = JSONObject().put("who", "xiaochen").put("text", text)
+        if (replyTo.isNotBlank()) c.put("reply_to", replyTo).put("reply_text", replyText.take(40))
+        return postJson(ctx, "/moments/react", JSONObject().put("id", id).put("comment", c))
+    }
 
     fun markMomentsRead(ctx: Context): Boolean = postJson(ctx, "/moments/read", JSONObject())
 

@@ -6,7 +6,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class MomentComment(val who: String, val text: String, val ts: Double)
+/** 0.122 replyTo：点着某条评论回的，存被回复的人（"chen"/"xiaochen"），空=直接评论帖子 */
+data class MomentComment(val who: String, val text: String, val ts: Double, val replyTo: String = "")
 
 /** 朋友圈一条：chat_server.py moments.jsonl 一行 */
 data class Moment(
@@ -26,7 +27,7 @@ data class Moment(
             val imgs = o.optJSONArray("images")?.let { a -> (0 until a.length()).mapNotNull { i -> a.optString(i).takeIf { it.isNotBlank() } } } ?: emptyList()
             val likes = o.optJSONArray("likes")?.let { a -> (0 until a.length()).map { i -> a.optString(i) } } ?: emptyList()
             val comments = o.optJSONArray("comments")?.let { a ->
-                (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { c -> MomentComment(c.optString("who"), c.optString("text"), c.optDouble("ts", 0.0)) } }
+                (0 until a.length()).mapNotNull { i -> a.optJSONObject(i)?.let { c -> MomentComment(c.optString("who"), c.optString("text"), c.optDouble("ts", 0.0), c.optString("reply_to")) } }
             } ?: emptyList()
             return Moment(o.optString("id"), o.optString("who", "chen"), o.optString("text", ""), imgs, o.optDouble("ts", 0.0), likes, comments)
         }
