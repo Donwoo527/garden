@@ -230,7 +230,8 @@ object NowPlaying {
             val key = base.songKey
             if (key.isNotEmpty() && base.title.isNotBlank() && key != extrasSongKey) {
                 extrasSongKey = key
-                val ex = dump(m, try { c.extras } catch (_: Exception) { null })
+                // 诊断键值倒不出来就算了，不能拖着整个 app 一起崩
+                val ex = try { dump(m, try { c.extras } catch (_: Exception) { null }) } catch (_: Throwable) { emptyMap() }
                 lastExtras.value = ex
                 base.copy(extras = ex)
             } else base
@@ -253,7 +254,9 @@ object NowPlaying {
 
     private fun dump(m: MediaMetadata?, sessionExtras: Bundle?): Map<String, String> {
         val out = LinkedHashMap<String, String>()
-        if (m != null) for (k in m.keySet()) {
+        // 1005 闪退：QQ 音乐切歌/停的时候 metadata 里会混进一个 null 键，out[k] 的非空检查当场抛 NPE（0.121 反编译钉死在这行）
+        if (m != null) for (k: String? in m.keySet()) {
+            if (k == null) continue
             val v: String = try {
                 when (k) {
                     in BITMAP_KEYS -> "<bitmap>"
@@ -265,7 +268,8 @@ object NowPlaying {
             out[k] = v.take(80)
         }
         // 会话级 extras（有的 app 把歌曲 id 放这里）
-        if (sessionExtras != null) for (k in sessionExtras.keySet()) {
+        if (sessionExtras != null) for (k: String? in sessionExtras.keySet()) {
+            if (k == null) continue
             @Suppress("DEPRECATION")
             val v = try { sessionExtras.get(k)?.toString() } catch (_: Exception) { null } ?: "null"
             out["session.$k"] = v.take(80)
