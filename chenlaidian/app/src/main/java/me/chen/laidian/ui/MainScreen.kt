@@ -85,7 +85,11 @@ private val TABS = listOf(
 )
 
 /** 0.85 她："朋友圈可以不要最底下那个凸起"——带 ← 的子页（朋友圈/收藏）不显示 dock：dock 是选页的，子页里选不了 */
-object SubPage { var open by mutableStateOf(false) }
+object SubPage {
+    var open by mutableStateOf(false)
+    /** 0.125 阅读页快捷回复框开着：键盘是顶那个对话框窗口的，主界面别再垫一遍键盘高度（她 1006："会缩小一点点""要是不跳就更好了"） */
+    var noIme by mutableStateOf(false)
+}
 
 @Composable
 fun MainScreen() {
@@ -141,7 +145,7 @@ fun MainScreen() {
         }
     }) { pad ->
         // 0.53 键盘只算一次：窗口不再自动缩(manifest adjustNothing)，这里统一垫键盘高度，并扣掉底栏 pad 已占的部分
-        Box(Modifier.padding(pad).consumeWindowInsets(pad).imePadding().fillMaxSize()) {
+        Box(Modifier.padding(pad).consumeWindowInsets(pad).then(if (SubPage.noIme) Modifier else Modifier.imePadding()).fillMaxSize()) {   // 0.125 快捷回复框开着时不垫
             when (tab) {
                 0 -> if (me.chen.laidian.AppState.safeMode) ChatScreen(onCall = startCall) else me.chen.laidian.ui.jet.JetConversation(onCall = startCall)
                 1 -> TerminalScreen()

@@ -553,6 +553,8 @@ private fun QuickReply(to: Msg, onSent: () -> Unit, onDismiss: () -> Unit) {
     val keyboard = LocalSoftwareKeyboardController.current
     // 框没了（发出去 / 点外面 / 返回 / 连阅读页一起退出）都把「正在输入」清掉，别让辰那边一直挂着
     DisposableEffect(Unit) { onDispose { ChatClient.typing(false) } }
+    // 0.125 框开着时主界面不垫键盘高度：不然键盘一出来整个阅读页被往上挤、书缩一圈（0.124 她真机看到的）
+    DisposableEffect(Unit) { SubPage.noIme = true; onDispose { SubPage.noIme = false } }
     val send = {
         val t = text.trim()
         if (t.isNotEmpty()) {
