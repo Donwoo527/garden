@@ -61,7 +61,21 @@ class ChenService : Service() {
         val callState = MutableLiveData("空闲")
         val speakerOn = MutableLiveData(false)
         val micMuted = MutableLiveData(false)   // 0.106 通话页静音钮的状态
+        /** 0.126 通话中语音 ws 的状态（通话页标题 / 小窗跟着变）："" 正常 / "down" 断了在重连 / "back" 刚连回来（挂 2.5 秒） */
+        val callLink = MutableLiveData("")
         @Volatile var running = false
+
+        // 0.126 连接看门狗：发起连接后这么久还没 auth 就掐掉重来。OkHttp 这个 client 的 readTimeout=0 且没设 callTimeout，
+        // TLS 握手 / 升级响应卡住时会一直等；走梯子的 SOCKS 口时本机这一跳秒通，上游死了它也不说，以前能干等好几分钟
+        private const val CONNECT_TIMEOUT_MS = 12_000L
+        // 0.126 通话中 5 秒一个 ping，15 秒什么都没收到就当线死了（以前只靠 OkHttp 25 秒一轮的协议 ping，最慢 50 秒才发现）
+        private const val PING_CALL_MS = 5_000L
+        private const val PING_IDLE_MS = 30_000L
+        private const val LINK_DEAD_MS = 15_000L
+        // 0.126 通话中重连退避封顶 10 秒（空闲还是 60 秒）
+        private const val CALL_BACKOFF_MAX_MS = 10_000L
+        // 0.126 挂断时线断着、没交出去的存话：这么久以内连上才补发（再久就只发挂断）
+        private const val LEFT_MAX_AGE_MS = 10 * 60_000L
     }
 
     private lateinit var client: OkHttpClient
@@ -72,10 +86,33 @@ class ChenService : Service() {
     private lateinit var audio: AudioEngine
     @Volatile private var inCall = false
 
+    // 0.126 语音 ws 断线处理（1006 21:53 门禁那通：断了界面照样「通话中 · 听着呢」，三分钟没连回来）。
+    // 连接状态的改动（onDown / onAuthed / 看门狗）都放在主线程上做；OkHttp 回调只认当前这条 ws（被掐掉的旧连接迟到的回调一律不理）
+    @Volatile private var authed = false          // 这条连接收到过 auth：服务端认了，可以发业务消息
+    @Volatile private var lastRxAt = 0L           // 最近一次收到服务端任何消息（elapsedRealtime）
+    // 0.126 接通/挂断只在认证过的连接上发；线断着时先记下，连上再发（以前 ws=null 时直接丢：断线时挂断，服务端就一直以为还在通话）。
+    // 只管"没发出去"的，不管"发出去了没回音"的——宁可漏不重发，免得服务端多写一行 [电话接通]/[电话挂断]。下面三个只在主线程上碰
+    private var pendingAccept = false
+    private var pendingHangup = false
+    private var pendingLeft: List<AudioEngine.Held> = emptyList()   // 挂断时线断着、没交出去的存话，补在挂断前面
+    private var pendingLeftAt = 0L
+    private val reconnect = Runnable { connect() }
+    private val connectWatch = Runnable {
+        val w = ws
+        if (w != null && !authed) { ws = null; w.cancel(); onDown("${CONNECT_TIMEOUT_MS / 1000} 秒没连上") }
+    }
+    private val clearBack = Runnable { if (callLink.value == "back") callLink.value = "" }
+
     private val pingRunnable = object : Runnable {
         override fun run() {
+            // 0.126 通话中：15 秒没收到服务端任何东西（pong 也没有）= 线死了，掐掉重连，别让她对着死线说
+            if (inCall && authed && android.os.SystemClock.elapsedRealtime() - lastRxAt > LINK_DEAD_MS) {
+                val w = ws
+                if (w != null) { ws = null; w.cancel(); onDown("通话中 ${LINK_DEAD_MS / 1000} 秒没收到服务器回音") }
+                return
+            }
             send(JSONObject().put("type", "ping"))
-            handler.postDelayed(this, 30_000)
+            handler.postDelayed(this, if (inCall) PING_CALL_MS else PING_IDLE_MS)
         }
     }
 
@@ -243,7 +280,13 @@ class ChenService : Service() {
             }
             ACTION_TEST_CALL -> { showIncomingCall("测试来电（本地）"); return START_STICKY }
             ACTION_ACCEPT -> { acceptCall(); return START_STICKY }
-            ACTION_HANGUP -> { send(JSONObject().put("type", "hangup")); endCall("已挂断"); return START_STICKY }
+            ACTION_HANGUP -> {
+                // 0.126 先停录音（断线时存着的话不再变），存话 + 挂断一起交出去；线断着就记下，连上再发
+                val left = if (inCall) { audio.endCall(); audio.takeBacklog() } else emptyList()
+                hangupFromHere(left)
+                endCall("已挂断")
+                return START_STICKY
+            }
             ACTION_SPEAKER -> {
                 if (inCall) { audio.setSpeaker(!audio.isSpeaker()); speakerOn.postValue(audio.isSpeaker()) }
                 return START_STICKY
@@ -275,46 +318,134 @@ class ChenService : Service() {
 
     // ---------- WebSocket ----------
 
+    /** 只在主线程上调（onStartCommand / reconnect / acceptCall） */
     private fun connect() {
         if (!running || ws != null) return
+        handler.removeCallbacks(reconnect)
         setStatus("连接中…")
+        authed = false
         audio.resetStream()   // 0.113 新连接从干净开始：流式先关、手里的 sid 作废，等这条连接自己的 hello
         val url = "wss://${BuildConfig.SERVER_HOST}:${BuildConfig.SERVER_PORT}/ws"
+        // 0.126 回调都先认是不是当前这条：看门狗/死线检测掐掉的旧连接，迟到的 onFailure 不能把新连接当成断了
         ws = client.newWebSocket(Request.Builder().url(url).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 webSocket.send(JSONObject().put("token", BuildConfig.WS_TOKEN).toString())
             }
-            override fun onMessage(webSocket: WebSocket, text: String) = handleMessage(text)
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                if (webSocket !== ws) return
+                lastRxAt = android.os.SystemClock.elapsedRealtime()
+                handleMessage(webSocket, text)
+            }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = onDown("连接关闭")
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) =
-                onDown("断线：${t.message ?: t.javaClass.simpleName}")
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                handler.post { if (webSocket === ws) onDown("连接关闭") }
+            }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                handler.post { if (webSocket === ws) onDown("断线：${t.message ?: t.javaClass.simpleName}") }
+            }
         })
+        // 0.126 看门狗：CONNECT_TIMEOUT_MS 内没 auth 就掐掉重来（以前一次连接卡住，ws 一直不为空，connect() 再也进不来）
+        handler.removeCallbacks(connectWatch)
+        handler.postDelayed(connectWatch, CONNECT_TIMEOUT_MS)
     }
 
+    /** 0.126 起只在主线程上调 */
     private fun onDown(why: String) {
+        val wasUp = authed
         ws = null
+        authed = false
+        handler.removeCallbacks(connectWatch)
         audio.resetStream()   // 0.113 断了：正在传的那句服务端自己收尾，本地不补发；重连后等新 hello 再流式
+        audio.onLinkDown()    // 0.126 通话中状态行换成「线断了，正在重连…」，之后说完的整句先存着
         handler.removeCallbacks(pingRunnable)
+        // 0.126 通话中：通话页标题换成「线断了」；从通着变成断了的那一下短震两下（每次重连失败不再震）
+        if (inCall && callLink.value != "down") {
+            handler.removeCallbacks(clearBack)
+            callLink.value = "down"
+            if (wasUp) buzz(longArrayOf(0, 120, 100, 120))
+        }
         if (!running) return
-        val wait = backoffMs
+        // 0.126 通话中退避封顶 10 秒（1/2/4/8/10/10…）；挂断后回到空闲的封顶 60 秒——服务还得连着等辰来电，不是不连了
+        val cap = if (inCall) CALL_BACKOFF_MAX_MS else 60_000L
+        val wait = min(backoffMs, cap)
         setStatus("$why，${wait / 1000}s 后重连")
-        handler.postDelayed({ connect() }, wait)
-        backoffMs = min(backoffMs * 2, 60_000L)
+        handler.removeCallbacks(reconnect)
+        handler.postDelayed(reconnect, wait)
+        backoffMs = min(backoffMs * 2, cap)
+    }
+
+    /** 0.126 收到 auth（主线程）：服务端认了这条连接 */
+    private fun onAuthed(webSocket: WebSocket) {
+        if (webSocket !== ws) return
+        authed = true
+        lastRxAt = android.os.SystemClock.elapsedRealtime()
+        handler.removeCallbacks(connectWatch)
+        backoffMs = 1000L
+        setStatus("辰在线")
+        ToyController.pushStatus()   // 0.89 重连后把玩具状态报一遍 辰那边不用等下一次变化
+        handler.removeCallbacks(pingRunnable)
+        handler.postDelayed(pingRunnable, if (inCall) PING_CALL_MS else PING_IDLE_MS)
+        // 0.126 断线时按的挂断：存话（老的整句 audio，服务端 worker 按顺序先认完再处理挂断）+ 挂断。
+        // 重连本身什么通话事件都不发：服务端只在收到 call_accept/hangup 时写 [电话接通]/[电话挂断]，auth/hello 不写
+        if (pendingHangup) {
+            pendingHangup = false
+            val left = pendingLeft
+            pendingLeft = emptyList()
+            if (System.currentTimeMillis() - pendingLeftAt < LEFT_MAX_AGE_MS) left.forEach { send(AudioEngine.heldAsAudio(it)) }
+            send(JSONObject().put("type", "hangup"))
+            if (inCall) {
+                // 挂了又拨了一通（线一直没通）：服务端处理完挂断会关掉这条连接，新一通的接通和声音等下一条连接再发。
+                // 万一 20 秒还没关，自己关
+                val hw = webSocket
+                handler.postDelayed({ if (ws === hw) hw.close(1000, "after hangup") }, 20_000)
+                return
+            }
+        }
+        if (pendingAccept && inCall && send(JSONObject().put("type", "call_accept"))) pendingAccept = false
+        audio.onLinkUp()   // 0.126 断线时存的话由录音线程等到 hello 后按顺序补发
+        if (inCall && callLink.value == "down") {
+            callLink.value = "back"
+            buzz(longArrayOf(0, 60))
+            handler.removeCallbacks(clearBack)
+            handler.postDelayed(clearBack, 2500)
+        }
     }
 
     private fun send(o: JSONObject): Boolean = ws?.send(o.toString()) ?: false
 
-    private fun handleMessage(text: String) {
+    /** 0.126 她这边按的挂断（主线程）。left = 断线时存着、还没交出去的话 */
+    private fun hangupFromHere(left: List<AudioEngine.Held>) {
+        // 这一通的接通压根没送到服务端（拨的时候线就断着，一直没连上）：服务端不知道有过这通，挂断也不发，存话一起作罢
+        if (pendingAccept) { pendingAccept = false; return }
+        if (authed) {
+            left.forEach { send(AudioEngine.heldAsAudio(it)) }
+            if (send(JSONObject().put("type", "hangup"))) return
+            pendingHangup = true; pendingLeft = emptyList()   // 存话刚才已经发过了，不再补
+            return
+        }
+        pendingHangup = true
+        pendingLeft = left
+        pendingLeftAt = System.currentTimeMillis()
+    }
+
+    /** 0.126 短震（照来电页的取法：12+ 走 VibratorManager） */
+    private fun buzz(pattern: LongArray) {
+        try {
+            val v = if (Build.VERSION.SDK_INT >= 31) {
+                (getSystemService(VIBRATOR_MANAGER_SERVICE) as android.os.VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(VIBRATOR_SERVICE) as android.os.Vibrator
+            }
+            v.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1))
+        } catch (_: Exception) {}
+    }
+
+    private fun handleMessage(webSocket: WebSocket, text: String) {
         val o = try { JSONObject(text) } catch (e: Exception) { return }
         when (o.optString("type")) {
-            "auth" -> {
-                backoffMs = 1000L
-                setStatus("辰在线")
-                ToyController.pushStatus()   // 0.89 重连后把玩具状态报一遍 辰那边不用等下一次变化
-                handler.removeCallbacks(pingRunnable)
-                handler.postDelayed(pingRunnable, 30_000)
-            }
+            // 0.126 挪到主线程（onAuthed）：连接状态的改动都在主线程上做，跟看门狗/onDown 不打架
+            "auth" -> handler.post { onAuthed(webSocket) }
             "pong" -> {}
             "status" -> sttStatus.postValue(o.optString("message"))
             "stt" -> lastText.postValue("你：" + o.optString("text"))
@@ -418,7 +549,10 @@ class ChenService : Service() {
     private fun acceptCall() {
         cancelCallNotif()
         if (!running) { running = true; connect() }
-        send(JSONObject().put("type", "call_accept"))
+        // 0.126 只在认证过的连接上发；线断着/还在连就先记下，连上（onAuthed）再发。
+        // （以前 ws=null 时直接丢了，服务端不写 [电话接通]；还在连时排在 token 前面，靠服务端 pre_auth 重放）
+        pendingAccept = !(authed && send(JSONObject().put("type", "call_accept")))
+        callLinkStart()
         if (!hasMic()) {
             callState.postValue("通话中")
             lastText.postValue("没有麦克风权限，只能听不能说")
@@ -441,8 +575,26 @@ class ChenService : Service() {
         audio.userMuted = false
     }
 
+    /** 0.126 开一通时（主线程）：线断着就马上重连（别等空闲时最长 60 秒的退避），通话页一上来就说线断了；连着就把 ping 换成 5 秒一个 */
+    private fun callLinkStart() {
+        // 空闲时 30 秒才一个 pong，lastRxAt 不能沿用（不然一开通话就被判成死线）；但也不给满 15 秒：
+        // 空闲时悄悄死掉的连接（换网络时 OkHttp 的 25 秒协议 ping 还没轮到）要尽快认出来——当场发个 ping，
+        // 服务端对 call_accept / ping 都是马上回的，开场 ~10 秒内什么都没收到就当死线重连
+        lastRxAt = android.os.SystemClock.elapsedRealtime() - (LINK_DEAD_MS - 6_000L)
+        backoffMs = 1000L
+        handler.removeCallbacks(clearBack)
+        callLink.value = if (authed) "" else "down"
+        if (ws == null) {
+            connect()   // 里面会撤掉还在等的 reconnect
+        } else if (authed) {
+            handler.removeCallbacks(pingRunnable)
+            handler.post(pingRunnable)
+        }
+    }
+
     private fun endCall(finalState: String) {
         cancelCallNotif()
+        callLink.postValue("")   // 0.126 可能在 ws 线程上（辰挂断）
         if (inCall) {
             inCall = false
             audio.endCall()

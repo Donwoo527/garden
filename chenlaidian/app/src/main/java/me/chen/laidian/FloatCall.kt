@@ -26,9 +26,14 @@ object FloatCall {
     private val ticker = object : Runnable {
         override fun run() {
             val ts = ChenService.callStartTs
-            if (ts > 0) {
+            if (ChenService.callLink.value == "down") {
+                // 0.126 缩成小窗时线断了：时长换成琥珀色「断线」，别让她以为还通着
+                timeTv?.text = "断线"
+                timeTv?.setTextColor(Color.parseColor("#F29B38"))
+            } else if (ts > 0) {
                 val s = ((System.currentTimeMillis() - ts) / 1000).toInt()
                 timeTv?.text = String.format("%02d:%02d", s / 60, s % 60)
+                timeTv?.setTextColor(Color.parseColor("#34B559"))
             }
             main.postDelayed(this, 1000)
         }

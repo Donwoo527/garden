@@ -109,8 +109,10 @@ class CallActivity : AppCompatActivity() {
         }
         ChenService.callState.observe(this) {
             if (it == "已挂断") { stopRinging(); beepEnd(); finish() }
-            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); title.text = "通话中"; state.text = ""; acceptWrap.visibility = View.GONE; speakerWrap.visibility = View.VISIBLE; micWrap.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
+            else if (it == "通话中") { stopRinging(); clearShowWhenLocked(); showInCallTitle(title); state.text = ""; acceptWrap.visibility = View.GONE; speakerWrap.visibility = View.VISIBLE; micWrap.visibility = View.VISIBLE }   // 0916 兜底：打出去/从小窗点回来不走接听按钮 通话中同样清锁屏覆盖
         }
+        // 0.126 语音 ws 断了/连回来了：标题这行（最显眼的那行）换成「线断了，正在重连…」/「连回来了」；挂在 callState 后面注册，重建页面时它后到、盖得住
+        ChenService.callLink.observe(this) { if (ChenService.callState.value == "通话中") showInCallTitle(title) }
         // 0.41 听着呢/翻译中这类状态显示在"通话中"下面 不再刷进字幕区
         ChenService.sttStatus.observe(this) { if (ChenService.callState.value == "通话中") state.text = it ?: "" }
         speaker.setOnClickListener { svc(ChenService.ACTION_SPEAKER) }
@@ -158,7 +160,7 @@ class CallActivity : AppCompatActivity() {
         val resume = i.getBooleanExtra("resume", false) || ChenService.callState.value == "通话中"   // 0.34 从悬浮小窗点回来
         if (resume) {
             stopRinging()
-            title.text = "通话中"
+            showInCallTitle(title)   // 0.126 断线中从小窗点回来也照实说
             state.text = ChenService.sttStatus.value ?: ""
             acceptWrap.visibility = View.GONE
             speakerWrap.visibility = View.VISIBLE   // 0929 复用实例时「通话中」不一定再推一次，按钮这里自己摆好
@@ -167,6 +169,7 @@ class CallActivity : AppCompatActivity() {
         }
         // 0929 新的一通：字幕清空。lastText 也是粘性的，不清的话新页面 onStart 会先把上一通最后一句贴上来
         findViewById<TextView>(R.id.callLast).text = ""
+        title.setTextColor(0xE6FFFFFF.toInt())   // 0.126 复用的页面上一通可能停在断线的琥珀色
         ChenService.lastText.value = ""
         if (i.getBooleanExtra("outgoing", false)) {
             // 0929 她报的：重打直接缩成小窗——根因：callState 是进程级静态 LiveData，上一通的「已挂断」一直留着；
@@ -198,6 +201,13 @@ class CallActivity : AppCompatActivity() {
     }
 
     private fun svc(action: String) = startService(Intent(this, ChenService::class.java).setAction(action))
+
+    /** 0.126 通话中的标题：线断着 →「线断了，正在重连…」（琥珀色）；刚连回来 →「连回来了」；平时「通话中」 */
+    private fun showInCallTitle(title: TextView) {
+        val link = ChenService.callLink.value
+        title.text = when (link) { "down" -> "线断了，正在重连…"; "back" -> "连回来了"; else -> "通话中" }
+        title.setTextColor(if (link == "down") 0xFFFFB74D.toInt() else 0xE6FFFFFF.toInt())
+    }
 
     /** 0916 她反馈：通话中锁屏再亮不该直接弹来电页。响铃阶段保留锁屏上弹出；接听后清掉锁屏覆盖 锁屏再亮回正常锁屏 要回通话自己解锁点app */
     private fun clearShowWhenLocked() {

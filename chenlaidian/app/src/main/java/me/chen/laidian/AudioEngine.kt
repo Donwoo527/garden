@@ -28,6 +28,10 @@ import kotlin.math.sqrt
  *  - 半双工：辰在说的时候不录（省得把外放录回去）；0.112 起只在开免提时这样，没开免提照样边放边收
  *  - 0.115 通话路由：中途插拔耳机按设备回调对账（新接上的耳机直接用，开着免提就替她关掉；耳机都走了换回手机）；
  *    要了耳机隔几秒核对真换过去没，没有就再要；录音钉不过去就整个重开一回；挂断收干净，开一通不信上一通的残留
+ *  - 0.126 语音 ws 断线（1006 21:53 进小区门禁那通：线断了界面照样「听着呢」，她对空线说了三分钟）：
+ *    线断着时状态行一直挂「线断了，正在重连…」；她说完的整句先存在内存里（总共最多 60 秒，超了挤掉最早的），
+ *    连上（ChenService 收到 auth → onLinkUp）按顺序补发：这条连接能流式就每句走一遍 stream_start/chunk/end（服务端按 stream_end 先后出字，
+ *    跟后面新说的话不会串序），不能就走老的整句 audio
  */
 class AudioEngine(
     private val context: Context,
@@ -72,7 +76,22 @@ class AudioEngine(
         private val ROUTE_CHECK_MS = longArrayOf(3000L, 4000L, 6000L)
         // 0.115 录音钉了耳机麦、这么久还没挪过去 → 趁她没在说话把录音整个重开一回（0928 那通：中途换过设备，录音一直留在手机麦）
         private const val REOPEN_AFTER_MS = 2500L
+        // 0.126 断线时存话的上限：60 秒音频（≈1.9MB），超了挤掉最早的整句
+        private const val HELD_MAX_BYTES = SAMPLE_RATE * 2 * 60
+        // 0.126 补发走流式时一块 1 秒（服务端自己再切成 200ms 喂腾讯）
+        private const val REPLAY_CHUNK_BYTES = SAMPLE_RATE * 2
+        // 0.126 连上后等 hello 最多这么久：等到了按流式补发，等不到（老服务端）按整句 audio 补发
+        private const val HELLO_WAIT_MS = 2000L
+
+        /** 0.126 存着的一句按老的整句 audio 发（挂断时线还断着的那几句，ChenService 连上后跟在挂断前面发）。
+         *  replay/recorded_at 两个字段现在的服务端不认、直接忽略，留给服务端以后标「断线时说的」 */
+        fun heldAsAudio(h: Held): JSONObject = JSONObject().put("type", "audio")
+            .put("audio", Base64.encodeToString(h.pcm, Base64.NO_WRAP)).put("format", "pcm16k")
+            .put("replay", true).put("recorded_at", h.at)
     }
+
+    /** 0.126 断线期间录下的一整句：pcm16k + 开口时刻（墙钟毫秒） */
+    class Held(val pcm: ByteArray, val at: Long)
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     @Volatile private var capturing = false
@@ -233,6 +252,9 @@ class AudioEngine(
             settleAt = 0L; noteUntil = 0L
         }
         muted = false; userSpeaking = false; currentDone = null
+        // 0.126 上一通断线时存下、没交出去的话不带进这一通（线通不通 linkUp 是连接的事，不在这里动）
+        synchronized(held) { held.clear(); heldBytes = 0; heldCount = 0 }
+        droppedMs = 0
         // 0.115 先把系统里的通话路由清空（通话设备 / SCO / 免提），下面按此刻实际连着的设备从头选
         resetRoute()
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
@@ -612,7 +634,7 @@ class AudioEngine(
             micDirty = false; pinMic(rec)   // 0.112 开录前先钉一次：有线/USB 这时就钉上；蓝牙要等 SCO 连上、通话设备回调再钉
             rec.startRecording()
             currentRec = rec
-            onState("听着呢 · " + micLabel())
+            onState(listenLine("听着呢 · " + micLabel()))   // 0.126 开场线就是断的（拨号时正在重连）：直接说线断了
             val frame = ByteArray(FRAME_BYTES)
             // 这句还没发出去的部分：老路攒整句、说完一次发；0.113 流式时只剩不到一块（200ms）的那点，够一块就发走
             val utter = ByteArrayOutputStream()
@@ -627,6 +649,11 @@ class AudioEngine(
             try {
                 while (capturing && gen == callGen.get()) {
                     if (micDirty) { micDirty = false; pinMic(rec) }   // 0.112 切过免提/换过耳机/SCO 刚连上：重钉麦
+                    // 0.126 线连回来了、手里还存着断线时说的话：等到 hello（或等满 2 秒）就按顺序补发。
+                    // 放在录音线程上发：补发的和她接下来新说的都从这一个线程出去，先后不会乱。
+                    // 她正说到一半就等这句说完（编码几秒音频要几十毫秒，录音缓冲只有一两百毫秒，别在她说话时卡出丢帧）
+                    if (heldCount > 0 && linkUp && !inSpeech &&
+                        (streamStt || android.os.SystemClock.elapsedRealtime() - linkUpAt >= HELLO_WAIT_MS)) flushHeld()
                     // 0.115 兜底：钉了耳机麦，过了 REOPEN_AFTER_MS 录音还在别的麦上 → 趁她没在说话把录音整个重开一回，新的开录前就钉好。
                     // （0928 那通：中途换过设备，录音一直留在手机麦——那时还没有钉麦；钉麦在这台 OPPO 上通话中途生不生效还没实测过。）
                     // 她说到一半不动：重开会断一两百毫秒
@@ -647,11 +674,12 @@ class AudioEngine(
                     }
                     val n = rec.read(frame, 0, FRAME_BYTES)
                     if (n <= 0) continue
-                    // 0.113 流到一半换过连接（断线/重连）：这个 sid 是上一条连接上开的，服务端那边自己收尾，新连接上一个字不补；
-                    // 本地这句就此作罢——她要是还在说，下一声起按新的一句算（新连接收到 hello 就流式，没收到就走老路整句发）
+                    // 0.113 流到一半换过连接（断线/重连）：这个 sid 是上一条连接上开的，已经传上去的那截服务端断线时自己收尾出字，新连接上不补。
+                    // 0.126 以前本地这句就此作罢（连同她接着说的）：现在只把 sid 丢掉，这句剩下的接着录成一句本地的，
+                    // 说完存起来等连上补发；speechMs 从零算——剩下的只是句尾静音的话凑不够一句，照旧丢掉
                     if (curSid != null && sidGen != connGen.get()) {
                         curSid = null
-                        utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; userSpeaking = false
+                        speechMs = 0
                     }
                     // 0.112 辰在说时只有开着免提才丢帧（外放才会录回去）；没开免提照样收。
                     // 以前看的是 headsetRouted()——它看的正是坏掉的那条路由，判成"没走耳机"就把她在我说话时说的全丢了
@@ -664,8 +692,7 @@ class AudioEngine(
                             // 老路会整句扔掉的（被真电话打断 / 不够 MIN_SPEECH_MS）带 cancel
                             streamEnd(utter, cancel = !keep)
                         } else if (keep) {
-                            val b64 = Base64.encodeToString(utter.toByteArray(), Base64.NO_WRAP)
-                            send(JSONObject().put("type", "audio").put("audio", b64).put("format", "pcm16k"))
+                            deliverRecorded(utter.toByteArray())   // 0.126 线断着就先存着
                         }
                         utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; userSpeaking = false; continue
                     }
@@ -679,12 +706,17 @@ class AudioEngine(
                     // 0.115 路由提示（耳机接上了/断开了/没接上）挂着的那两三秒也不刷
                     if (!inSpeech && !muted && now - lastShow >= 1000 && now >= noteUntil) {   // 我在说话时不刷 免得盖掉「辰在说…」
                         pinMic(rec)   // 0.112 兜底：两边都没说话时每秒对一次该用的麦——回调漏了/来晚了也能跟上
-                        onState("听着呢 · ${micLabel()} · 音量${peak.toInt()}/门槛${gate.toInt()}")
+                        // 0.126 线断着：每秒刷的是「线断了，正在重连…（存了几秒）」，不再刷「听着呢」骗她
+                        onState(listenLine("听着呢 · ${micLabel()} · 音量${peak.toInt()}/门槛${gate.toInt()}"))
                         peak = 0.0; lastShow = now
                     }
                     if (loud) {
                         // 0.113 streamStart：这条连接能流式就开流（发 stream_start），不能就什么都不做、这句走老路
-                        if (!inSpeech) { inSpeech = true; userSpeaking = true; onState("你在说…"); streamStart() }
+                        if (!inSpeech) {
+                            inSpeech = true; userSpeaking = true
+                            onState(if (linkUp) "你在说…" else "你在说…（线断着，先存着）")   // 0.126
+                            streamStart()
+                        }
                         utter.write(frame, 0, n); speechMs += FRAME_MS; silenceMs = 0
                         // 0.111 不再插话掐我：0928 通话一点杂音就把辰的话掐断三回，她"没有必要擦掉你说的话"。
                         // 没开免提时照样边放边收（0.112 起不再看走没走耳机），她说的一句不丢，只是不停我的播放
@@ -704,9 +736,9 @@ class AudioEngine(
                             streamEnd(utter, cancel = !ok)
                             if (ok) onState("发出去了，等辰…")
                         } else if (speechMs >= MIN_SPEECH_MS) {
-                            val b64 = Base64.encodeToString(utter.toByteArray(), Base64.NO_WRAP)
-                            send(JSONObject().put("type", "audio").put("audio", b64).put("format", "pcm16k"))
-                            onState("发出去了，等辰…")
+                            // 0.126 线通着当场发；断着（或前面还有存着没补发的）就存起来排队
+                            val sent = deliverRecorded(utter.toByteArray())
+                            onState(if (sent) "发出去了，等辰…" else if (!linkUp) linkLine() else "存下了，马上补发")
                         }
                         utter.reset(); speechMs = 0; silenceMs = 0; inSpeech = false; userSpeaking = false
                     }
@@ -817,7 +849,8 @@ class AudioEngine(
      *  这里没有预录缓冲：起音那一帧就是流的开头，跟老路整句的开头一样，随第一块发出去 */
     private fun streamStart() {
         val gen = connGen.get()   // 先取代数再看开关：两次读之间断了线，开出来的流下一帧也会被认成旧连接的
-        if (!streamStt) return
+        // 0.126 线没通（还没 auth）/ 前面还有存着没补发的：这句先录在本地，说完排到存着的后面，免得新话跑到补发的前面
+        if (!streamStt || !linkUp || heldCount > 0) return
         val sid = UUID.randomUUID().toString()
         sidGen = gen
         curSid = sid
@@ -846,6 +879,113 @@ class AudioEngine(
             send(o)
         }
         curSid = null
+    }
+
+    // ---------- 0.126 断线：上屏 + 她说的先存着，连上补发 ----------
+
+    // 线通不通：ChenService 收到 auth 置 true、断线/重连前置 false。不分通话不通话——开一通时就知道这会儿线通不通
+    @Volatile private var linkUp = false
+    @Volatile private var linkUpAt = 0L
+    // 断线时说完的整句，按先后排着（只在持 held 锁时改）；heldCount 给录音线程每帧看一眼用，不用拿锁
+    private val held = ArrayDeque<Held>()
+    private var heldBytes = 0
+    @Volatile private var heldCount = 0
+    @Volatile private var droppedMs = 0   // 存满 60 秒后挤掉的最早那些（毫秒）
+
+    /** 断线了（ChenService.onDown，每次重连失败也会再调一回）。通话中就把状态行换成「线断了」 */
+    fun onLinkDown() {
+        linkUp = false
+        if (calling) onState(linkLine())
+    }
+
+    /** 连上了（auth 过）。存着的话由录音线程等到 hello 后补发（flushHeld） */
+    fun onLinkUp() {
+        linkUpAt = android.os.SystemClock.elapsedRealtime()
+        linkUp = true
+        if (calling) routeNote(if (heldCount > 0) "连回来了，正在补发刚才存的…" else "连回来了")
+    }
+
+    /** 挂断时还没交出去的存话（ChenService 在 endCall 之后取走：线还断着就跟挂断一起留到连上再发） */
+    fun takeBacklog(): List<Held> = synchronized(held) {
+        val l = held.toList()
+        held.clear(); heldBytes = 0; heldCount = 0
+        l
+    }
+
+    /** 线断着时状态行上的话 */
+    private fun linkLine(): String {
+        val secs = synchronized(held) { heldBytes } / (SAMPLE_RATE * 2)
+        return when {
+            droppedMs > 0 -> "线断了，正在重连… 存满一分钟了，最早的话挤掉了"
+            secs > 0 -> "线断了，正在重连… 你说的先存着（${secs} 秒），连上补发"
+            else -> "线断了，正在重连… 现在说的我先存着，连上补发"
+        }
+    }
+
+    /** 平时的状态行（听着呢…）：线断着就换成 linkLine */
+    private fun listenLine(normal: String) = if (linkUp) normal else linkLine()
+
+    /** 说完的一整句（只在录音线程上调）：线通着、前面没有排队的 → 当场发；不然存起来。返回 true = 当场发出去了 */
+    private fun deliverRecorded(pcm: ByteArray): Boolean {
+        // 这条连接能流式还走到这里 = 这句是线断着时开口录在本地的，整句一次补上去（replay）；老服务端就是平常的整句发
+        if (linkUp && heldCount == 0 && sendRecorded(pcm, System.currentTimeMillis() - pcm.size / 32, replay = streamStt)) return true
+        hold(pcm)
+        return false
+    }
+
+    private fun hold(pcm: ByteArray) {
+        val at = System.currentTimeMillis() - pcm.size / 32   // 16k 16bit：32 字节 = 1 毫秒
+        synchronized(held) {
+            held.addLast(Held(pcm, at)); heldBytes += pcm.size
+            while (heldBytes > HELD_MAX_BYTES && held.size > 1) {
+                val old = held.removeFirst()
+                heldBytes -= old.pcm.size; droppedMs += old.pcm.size / 32
+            }
+            heldCount = held.size
+        }
+    }
+
+    /** 整句发一遍（只在录音线程上调）。这条连接收到过 hello 就走流式那套（start → 1 秒一块 → end，服务端按 stream_end 先后出字），
+     *  没有就走老的整句 audio。任何一步发不出去返回 false（这句留着下回再补） */
+    private fun sendRecorded(pcm: ByteArray, at: Long, replay: Boolean): Boolean {
+        if (!streamStt) {
+            val o = JSONObject().put("type", "audio").put("audio", Base64.encodeToString(pcm, Base64.NO_WRAP)).put("format", "pcm16k")
+            if (replay) o.put("replay", true).put("recorded_at", at)
+            return send(o)
+        }
+        val sid = UUID.randomUUID().toString()
+        val start = JSONObject().put("type", "stream_start").put("sid", sid).put("format", "pcm16k")
+        if (replay) start.put("replay", true).put("recorded_at", at)   // 现在的服务端不认这两个字段 无害
+        if (!send(start)) return false
+        var i = 0
+        while (i < pcm.size) {
+            val n = minOf(REPLAY_CHUNK_BYTES, pcm.size - i)
+            val b64 = Base64.encodeToString(pcm, i, n, Base64.NO_WRAP)
+            if (!send(JSONObject().put("type", "stream_chunk").put("sid", sid).put("audio", b64))) return false
+            i += n
+        }
+        return send(JSONObject().put("type", "stream_end").put("sid", sid))
+    }
+
+    /** 连回来后按顺序补发存着的（只在录音线程上调）。发不出去（又断了）就停，剩下的接着存 */
+    private fun flushHeld() {
+        var n = 0
+        var bytes = 0
+        while (linkUp) {
+            val h = synchronized(held) { held.firstOrNull() } ?: break
+            if (!sendRecorded(h.pcm, h.at, replay = true)) break
+            synchronized(held) {
+                if (held.firstOrNull() === h) { held.removeFirst(); heldBytes -= h.pcm.size }
+                heldCount = held.size
+            }
+            n++; bytes += h.pcm.size
+        }
+        if (n > 0) {
+            val lost = droppedMs / 1000
+            droppedMs = 0
+            routeNote("连回来了，刚才存的 $n 句（${bytes / (SAMPLE_RATE * 2)} 秒）补发过去了" +
+                (if (lost > 0) "，更早的约 $lost 秒没存下" else ""))
+        }
     }
 
     // ---------- 放音 ----------
@@ -930,7 +1070,7 @@ class AudioEngine(
             if (gen == callGen.get()) {   // 0.115 上一通剩下的线程不碰这一通的状态
                 currentDone = null
                 muted = false
-                if (capturing) onState("听着呢 · " + micLabel())
+                if (capturing) onState(listenLine("听着呢 · " + micLabel()))   // 0.126
             }
         }
     }
