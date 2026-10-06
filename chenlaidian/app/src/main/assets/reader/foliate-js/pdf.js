@@ -12,6 +12,19 @@ const textLayerBuilderCSS = await fetchText(pdfjsPath('text_layer_builder.css'))
 // https://raw.githubusercontent.com/mozilla/pdf.js/refs/tags/v5.5.207/web/annotation_layer_builder.css
 const annotationLayerBuilderCSS = await fetchText(pdfjsPath('annotation_layer_builder.css'))
 
+// 0.124 一起读：文字层每个页框只建一次，建好了告诉 reader.js。
+// 原版 onZoom → render 每回都 new TextLayer 往同一个 .textLayer 里接着 append，而 fixed-layout 的 #render() 一来就调一遍 onZoom
+// （开跨页、ResizeObserver、竖屏同一跨页换边都算）——同一页的字叠两三份。建过就只按新 viewport update（pdf.js 自己的 TextLayerBuilder 也这样）。
+// reader.js 要拿「这一页」的字报给辰，可 relocate 比文字层先到（render 是 onZoom 里没人等的异步）：
+// 建好后在页框的 <html> 上打 data-text-ready、在 doc 上发 'textready'，那边等这个信号再读。建失败也照发（读到空），不让那边干等
+const textLayers = new WeakMap()   // 页框 doc → Promise<TextLayer>（正在建或已建好）
+const markTextReady = doc => {
+    const root = doc?.documentElement
+    if (!root || root.dataset.textReady) return
+    root.dataset.textReady = '1'
+    doc.dispatchEvent(new Event('textready'))
+}
+
 // 0.118 诊断打点走 globalThis.__readerDiag（reader 的 diag.js 挂的，没挂就全是空操作）：她手机上页框都没出来，要知道停在哪一步
 const render = async (page, doc, zoom) => {
     const diag = globalThis.__readerDiag
@@ -22,6 +35,7 @@ const render = async (page, doc, zoom) => {
         diag?.mark('done', { p })
     } catch (e) {
         diag?.mark('fail', { p, err: String(e?.message ?? e).slice(0, 200) })
+        markTextReady(doc)   // 0.124 画布那步就挂了、文字层没建成：也得放 reader.js 那边别等了
         throw e
     }
 }
@@ -48,11 +62,31 @@ const renderSteps = async (page, doc, zoom, diag, p) => {
     diag?.mark('canvas', { p })
 
     const container = doc.querySelector('.textLayer')
-    const textLayer = new pdfjsLib.TextLayer({
-        textContentSource: await page.streamTextContent(),
-        container, viewport,
-    })
-    await textLayer.render()
+    // 0.124 这个页框建过（或正在建）文字层：只按这次的 viewport 重排，不再 append 一份（见文件头 textLayers）
+    const building = textLayers.get(doc)
+    if (building) {
+        const layer = await building.catch(() => null)
+        layer?.update({ viewport })
+    } else {
+        const task = (async () => {
+            container.replaceChildren()   // 上回建到一半失败留下的残字清掉
+            const textLayer = new pdfjsLib.TextLayer({
+                textContentSource: await page.streamTextContent(),
+                container, viewport,
+            })
+            await textLayer.render()
+            // fix text selection（原样从下面挪进来：跟文字层一样每个页框只加一次）
+            // https://github.com/mozilla/pdf.js/blob/642b9a5ae67ef642b9a8808fd9efd447e8c350e2/web/text_layer_builder.js#L105-L107
+            const endOfContent = document.createElement('div')
+            endOfContent.className = 'endOfContent'
+            container.append(endOfContent)
+            return textLayer
+        })()
+        textLayers.set(doc, task)
+        try { await task }
+        catch (e) { textLayers.delete(doc); throw e }   // 下次 render 重建
+        finally { markTextReady(doc) }
+    }
     diag?.mark('text', { p })
 
     // hide "offscreen" canvases appended to docuemnt when rendering text layer
@@ -67,11 +101,6 @@ const renderSteps = async (page, doc, zoom, diag, p) => {
             display: 'none',
         })
 
-    // fix text selection
-    // https://github.com/mozilla/pdf.js/blob/642b9a5ae67ef642b9a8808fd9efd447e8c350e2/web/text_layer_builder.js#L105-L107
-    const endOfContent = document.createElement('div')
-    endOfContent.className = 'endOfContent'
-    container.append(endOfContent)
     // TODO: this only works in Firefox; see https://github.com/mozilla/pdf.js/pull/17923
     container.onpointerdown = () => container.classList.add('selecting')
     container.onpointerup = () => container.classList.remove('selecting')

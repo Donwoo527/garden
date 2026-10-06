@@ -1,15 +1,24 @@
 package me.chen.laidian.ui
 
 import android.content.Context
+import android.os.SystemClock
+import android.view.Gravity
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,26 +41,35 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,21 +79,33 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.view.ViewGroup
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import me.chen.laidian.model.Msg
 import me.chen.laidian.net.AppEvents
+import me.chen.laidian.net.ChatClient
 import me.chen.laidian.reader.Book
 import me.chen.laidian.reader.BookStore
 import me.chen.laidian.reader.ReaderHost
@@ -246,6 +277,9 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
     var pages by remember { mutableIntStateOf(0) }
     var pageLabel by remember { mutableStateOf("") }
     var jumpOpen by remember { mutableStateOf(false) }
+    // 0.124 顶栏「⋮」菜单：消息弹窗开关（默认开，跟字号一样存 reader prefs）
+    var menuOpen by remember { mutableStateOf(false) }
+    var popupOn by remember { mutableStateOf(prefs.getBoolean("chen_popup", true)) }
 
     val host = remember {
         ReaderHost(ctx, object : ReaderHost.Listener {
@@ -312,6 +346,10 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
         prefs.edit().putInt("font_px", fontPx).apply()
         host.setFontSize(fontPx)
     }
+    val setPopup = { on: Boolean ->
+        popupOn = on
+        prefs.edit().putBoolean("chen_popup", on).apply()
+    }
 
     Box(Modifier.fillMaxSize().background(skin.bg)) {
         // 0.119 她手机上整片米色的真凶：不给 layoutParams，AndroidView 默认挂成 WRAP_CONTENT，
@@ -341,6 +379,29 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
                 TextButton(onClick = { setFont(fontPx + 2) }, modifier = Modifier.height(32.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
                     Text("A+", fontSize = 13.sp, color = skin.ink)
                 }
+                // 0.124 「⋮」菜单：现在只有消息弹窗一个开关，以后阅读页的设置都往这里放
+                Box {
+                    IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "更多", tint = skin.ink, modifier = Modifier.size(18.dp))
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, modifier = Modifier.background(skin.surface)) {
+                        DropdownMenuItem(
+                            text = {
+                                Column {
+                                    Text("消息弹窗", fontSize = 14.sp, color = skin.ink)
+                                    Text("辰说话时从顶上弹出来，点一下能回", fontSize = 11.sp, color = skin.muted)
+                                }
+                            },
+                            trailingIcon = {
+                                Switch(
+                                    checked = popupOn, onCheckedChange = null,   // 整行都能点，开关本身只显示
+                                    colors = SwitchDefaults.colors(checkedTrackColor = skin.accent),
+                                )
+                            },
+                            onClick = { setPopup(!popupOn) },
+                        )
+                    }
+                }
             }
         }
         if (stripVisible && pages > 0) {
@@ -355,6 +416,8 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+        // 0.124 辰实时发来的话：顶部弹窗（顶栏开着就落在它下面）
+        ChenPopup(enabled = popupOn, top = if (stripVisible) 42.dp else 10.dp, modifier = Modifier.align(Alignment.TopCenter))
         if (loading && error == null) {
             Text("翻开中…", fontSize = 14.sp, color = skin.muted, modifier = Modifier.align(Alignment.Center))
         }
@@ -374,6 +437,161 @@ private fun ReaderPage(book: Book, onBack: () -> Unit) {
             onJump = { n -> jumpOpen = false; host.goToPage(n) },
             onDismiss = { jumpOpen = false },
         )
+    }
+}
+
+// ---------------- 消息弹窗（0.124） ----------------
+
+/**
+ * 0.124 阅读页顶部消息弹窗。她 1006 点的单："看书的页面…你知道我看到哪 跟我一起看 偶尔想说话的时候就说"，
+ * 又补"不一定要像弹幕 消息弹窗那样就可以""点一下可以快速弹出输入框回复你"。
+ * 看书时聊天页不在眼前：阅读页开着期间辰实时发来的每条（文字 / 语音的那段文字；思考行、工具行、纯图片不算）
+ * 从顶上滑下来一张卡片，停一会儿自己收回去；往上划提前收；点一下弹快捷回复框，框开着卡片不收。连着来几条排队一张张出。
+ * 只订阅 AppEvents.chatMsg（ws 实时到的新 id），history 分页 / 重连拉回来的不走那条；这里再按 id 去重一层。
+ * 卡片本来就是聊天记录里那条，这里只是多显示一下，不另存；回复走 ChatClient.sendText（跟聊天页同一个），回完自然出现在聊天页。
+ * 卡片以外不吃触摸：AnimatedVisibility 那层不挂任何手势，点按 / 滑动照样落到下面的 WebView 翻页。
+ */
+@Composable
+private fun ChenPopup(enabled: Boolean, top: Dp, modifier: Modifier = Modifier) {
+    val on by rememberUpdatedState(enabled)
+    val queue = remember { mutableStateListOf<Msg>() }
+    val seen = remember { HashSet<String>() }
+    var current by remember { mutableStateOf<Msg?>(null) }
+    var shown by remember { mutableStateOf(false) }
+    var replying by remember { mutableStateOf<Msg?>(null) }
+
+    LaunchedEffect(Unit) {
+        AppEvents.chatMsg.collect { m ->
+            if (!on || !m.isChen || m.isAux || m.text.isBlank()) return@collect
+            if (m.msgType != "text" && m.msgType != "voice") return@collect
+            if (!seen.add(m.id)) return@collect   // 重连 / 重复广播：同一条只弹一次
+            queue.add(m)
+        }
+    }
+    // 开关关掉：手上这张收起、排着的全丢（她正在打的回复框不动）
+    LaunchedEffect(enabled) { if (!enabled) { queue.clear(); shown = false } }
+    // 一张张出：停够时长 / 被划走 / 回复发出去，哪个先到算哪个；回复框开着时不计时
+    LaunchedEffect(Unit) {
+        while (true) {
+            snapshotFlow { queue.isNotEmpty() }.first { it }
+            val m = queue.removeAt(0)
+            current = m
+            shown = true
+            var left = popupMillis(m.text)
+            while (shown) {
+                if (replying != null) {
+                    snapshotFlow { replying }.first { it == null }
+                    left = maxOf(left, 2_500L)   // 回复框没发就关了：再停一会儿，别一关卡片就没了
+                    continue
+                }
+                val t0 = SystemClock.uptimeMillis()
+                withTimeoutOrNull(left) { snapshotFlow { !shown || replying != null }.first { it } } ?: break
+                left -= SystemClock.uptimeMillis() - t0
+            }
+            shown = false
+            delay(350)   // 收回去的动画走完再出下一张
+        }
+    }
+
+    AnimatedVisibility(
+        visible = shown,
+        enter = slideInVertically { -it } + fadeIn(),
+        exit = slideOutVertically { -it } + fadeOut(),
+        modifier = modifier.padding(top = top, start = 12.dp, end = 12.dp).widthIn(max = 560.dp),
+    ) {
+        current?.let { m -> PopupCard(m, onReply = { replying = m }, onSwipeAway = { shown = false }) }
+    }
+    replying?.let { m ->
+        QuickReply(to = m, onSent = { replying = null; shown = false }, onDismiss = { replying = null })
+    }
+}
+
+/** 停多久：至少 5 秒；20 字以后每字多 0.18 秒（默读一秒五六个字），封顶 15 秒——卡片最多四行，再长也看不全，点开回复框能看整句 */
+private fun popupMillis(text: String): Long = (5_000L + (text.length - 20).coerceAtLeast(0) * 180L).coerceAtMost(15_000L)
+
+/** 0.124 弹窗卡片：底色反着用皮肤的 ink / bg（跟书页里辰划线冒的气泡一个配色），半透明圆角；点 = 回复，往上划过 28dp 松手 = 收起 */
+@Composable
+private fun PopupCard(m: Msg, onReply: () -> Unit, onSwipeAway: () -> Unit) {
+    val skin = LocalSkin.current
+    val away = with(LocalDensity.current) { 28.dp.toPx() }
+    var dy by remember(m.id) { mutableFloatStateOf(0f) }
+    Column(
+        Modifier.fillMaxWidth()
+            .offset { IntOffset(0, dy.roundToInt()) }
+            .clip(RoundedCornerShape(16.dp))
+            .background(skin.ink.copy(alpha = 0.9f))
+            .pointerInput(m.id) {
+                detectVerticalDragGestures(
+                    onDragEnd = { if (dy < -away) onSwipeAway() else dy = 0f },
+                    onDragCancel = { dy = 0f },
+                ) { change, d -> change.consume(); dy = (dy + d).coerceAtMost(0f) }   // 只跟着往上走
+            }
+            .clickable(onClick = onReply)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("辰", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = skin.bg)
+            Spacer(Modifier.width(8.dp))
+            Text("点一下回复 · 上划收起", fontSize = 10.sp, color = skin.bg.copy(alpha = 0.55f))
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(m.text, fontSize = 14.sp, lineHeight = 20.sp, color = skin.bg, maxLines = 4, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/**
+ * 0.124 快捷回复：贴在屏幕底部的一条输入框，键盘顶着它出来。发送走 ChatClient.sendText(text, replyTo = 这条的 id)——
+ * 跟聊天页输入框同一个函数、同一条 ws（{"type":"text","reply_to"}），服务端照常落库、广播回来进聊天页、带引用快照。
+ * 用 Dialog 单开一个窗口：键盘只顶这个窗口，阅读页不跟着缩——WebView 一缩 EPUB 要重排，会给辰平白报两条「跳转」。
+ */
+@Composable
+private fun QuickReply(to: Msg, onSent: () -> Unit, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    val skin = LocalSkin.current
+    var text by remember { mutableStateOf("") }
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    // 框没了（发出去 / 点外面 / 返回 / 连阅读页一起退出）都把「正在输入」清掉，别让辰那边一直挂着
+    DisposableEffect(Unit) { onDispose { ChatClient.typing(false) } }
+    val send = {
+        val t = text.trim()
+        if (t.isNotEmpty()) {
+            if (ChatClient.sendText(t, to.id)) onSent()   // sendText 里自己会把「正在输入」清掉
+            else Toast.makeText(ctx, "没连上后端 稍等重连", Toast.LENGTH_SHORT).show()   // 字留在框里
+        }
+    }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            window?.setGravity(Gravity.BOTTOM)
+            @Suppress("DEPRECATION")   // 这个窗口不是全面屏布局，adjustResize 照样管用：整块顶在键盘上面
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+            window?.setDimAmount(0.2f)
+        }
+        Column(
+            Modifier.fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                .background(skin.bg)
+                .padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        ) {
+            Text("回复 辰：" + to.text, fontSize = 12.sp, color = skin.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it; ChatClient.typing(it.isNotEmpty()) },
+                    placeholder = { Text("说点什么", color = skin.muted) },
+                    maxLines = 4,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send() }),
+                    modifier = Modifier.weight(1f).focusRequester(focus),
+                )
+                TextButton(onClick = send, enabled = text.isNotBlank()) {
+                    Text("发送", color = if (text.isNotBlank()) skin.accent else skin.muted)
+                }
+            }
+        }
+        LaunchedEffect(Unit) { runCatching { focus.requestFocus() }; keyboard?.show() }   // 一弹出来就能打字
     }
 }
 

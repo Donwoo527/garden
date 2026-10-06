@@ -111,6 +111,7 @@ object ChatClient {
                 if (m.id.isNotEmpty() && messages.value.none { it.id == m.id }) {
                     messages.value = (messages.value + m).sortedBy { it.ts }  // 0926 思考按真实时间排：它比回复晚到半秒 但 ts 在前 要排到回复上面
                     onMessage?.invoke(m)
+                    AppEvents.chatMsg.tryEmit(m)   // 0.124 阅读页消息弹窗：只有这里（实时到的新 id）发，history 不发
                 }
                 if (m.who == "chen") pendingThinking.value = null
             }

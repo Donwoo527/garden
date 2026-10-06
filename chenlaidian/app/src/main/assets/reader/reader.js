@@ -33,6 +33,8 @@ const S = {
     pageMode: 'loc',       // 0.121 页码怎么算：fixed / list / loc（见「进度条 / 跳页」）
     pageItems: [],         // list 模式：书里页码表中标数字的那些 [{ n, href }]
     pageMax: 0,            // list 模式：页码表里最大的页号（当总页数）
+    frameIndex: new WeakMap(),       // 0.124 固定版式：页框 doc → 它是第几节（'load' 时记）
+    fixedQueue: Promise.resolve(),   // 0.124 固定版式的 relocate 排队等本页文字层，按翻的顺序交
 }
 
 // ---------- 样式 ----------
@@ -66,16 +68,50 @@ const clean = s => (s ?? '')
     .replace(/\n{2,}/g, '\n')
     .trim()
 
-// 本页可见原文：分页模式用 relocate 给的 range；PDF（固定版式）没有 range，从 pdf.js 的文字层抠
+// 本页可见原文：分页模式用 relocate 给的 range。PDF（固定版式）没有 range，走下面的 fixedPageText
 const pageText = loc => {
     let t = ''
     try { t = loc?.range?.toString() ?? '' } catch (e) { console.warn(e) }
-    if (!t && S.view?.isFixedLayout) {
-        try {
-            t = S.view.renderer.getContents()
-                .map(({ doc }) => doc?.querySelector('.textLayer')?.textContent ?? '')
-                .join('\n')
-        } catch (e) { console.warn(e) }
+    t = clean(t)
+    return t.length > 4000 ? t.slice(0, 4000) : t
+}
+
+// ---------- PDF 本页文字（0.124） ----------
+// 0.123 之前 PDF 一半翻页报空、另一半报的是隔壁页（她 10/03 读《行者创业系统读书》：「第一章」那页报的是目录页的字）。两个根因：
+//  ① 取早了：fixed-layout 开新跨页时 onZoom 只是把 pdf.js 渲染「点着」就报 relocate，这时文字层还是空的 → 报空
+//  ② 取多了：PDF 没写 spread，foliate 两页拼一个跨页（{1,2} {3,4} …），竖屏只露一页、另一页 display:none 但页框还在；
+//     原来把 getContents() 里所有页框的文字层拼起来，跨页内换边（3→4）时打头的是藏着的那页 → 「第一章」报成目录页
+// 现在：只取 'load' 时记下的、节号等于这次 relocate index 的那个页框；它的文字层建好前（pdf.js 打 data-text-ready / 发 'textready'）先等着
+const TEXT_WAIT_MAX = 15000
+
+const frameDocOf = index => {
+    try {
+        return S.view.renderer.getContents().map(x => x.doc).find(d => d && S.frameIndex.get(d) === index) ?? null
+    } catch (e) { return null }
+}
+
+const textLayerReady = doc => new Promise(resolve => {
+    const root = doc?.documentElement
+    if (!root || root.dataset.textReady || !doc.querySelector('.textLayer')) return resolve()   // 已经建好 / 不是 pdf.js 的页（固定版式 EPUB）
+    const done = () => { clearTimeout(timer); resolve() }
+    doc.addEventListener('textready', done, { once: true })
+    // 兜底不是等渲染的手段：正常一页几百毫秒信号就到；只防 pdf.js 卡死（worker 没了）时后面的翻页全堵在队里
+    const timer = setTimeout(() => {
+        doc.removeEventListener('textready', done)
+        console.warn('这页的文字层等了 15 秒没建好，先按现有的报')
+        resolve()
+    }, TEXT_WAIT_MAX)
+})
+
+// pdf.js 文字层：一行末尾它插的是 <br>（hasEOL），textContent 会把上一行行尾和下一行行首直接粘一起，这里换成换行
+const fixedPageText = doc => {
+    const layer = doc?.querySelector?.('.textLayer')
+    if (!layer) return ''
+    let t = ''
+    const w = doc.createTreeWalker(layer, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT)
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+        if (n.nodeType === Node.TEXT_NODE) t += n.nodeValue
+        else if (n.localName === 'br') t += '\n'
     }
     t = clean(t)
     return t.length > 4000 ? t.slice(0, 4000) : t
@@ -437,12 +473,25 @@ const onRelocate = e => {
         fraction: Number.isFinite(loc.fraction) ? loc.fraction : 0,
         chapter: loc.tocItem?.label ?? '',
         index: index ?? -1,
-        text: pageText(loc),
+        text: view.isFixedLayout ? '' : pageText(loc),   // 0.124 固定版式的等文字层建好再填（见下）
     }
     try { Object.assign(payload, progressOf(view, e.detail, loc)) } catch (err) { console.warn(err) }   // 0.121 底栏进度条 / 页码
     redrawAnchors(index)
     const sf = e.detail.fraction
-    if (view.isFixedLayout) diag.mark('relocate', { i: index, reason: reason ?? '' })   // 0.118
+    if (view.isFixedLayout) {
+        diag.mark('relocate', { i: index, reason: reason ?? '' })   // 0.118
+        // 0.124 等这一页自己的文字层建好再交（见「PDF 本页文字」）。排成一条队：连翻几页也按翻的顺序到 Kotlin，dwell 不乱
+        const doc = frameDocOf(index)
+        S.fixedQueue = S.fixedQueue
+            .then(() => textLayerReady(doc))
+            .then(() => {
+                if (S.view !== view) return   // 等的工夫书关了 / 换了
+                payload.text = fixedPageText(doc)
+                deliver(payload, reason, sf)
+            })
+            .catch(err => console.warn(err))
+        return
+    }
     if (reason === 'anchor') {
         // 'anchor' 大多是换章过程中的过渡量（旧锚点套在新文档上量出来的一页，随后 navigation 就到）；
         // 真的重排（改字号/转屏）后面没有别的 relocate。所以压 300ms：期间来了别的就丢掉它
@@ -461,6 +510,7 @@ const onRelocate = e => {
 
 const onLoad = ({ detail: { doc, index } }) => {
     if (S.view?.isFixedLayout) diag.mark('load', { i: index, url: String(doc?.URL ?? '').slice(0, 12) })   // 0.118 页框 iframe 载入了
+    if (doc && S.view?.isFixedLayout) S.frameIndex.set(doc, index)   // 0.124 报 relocate 时按节号找回这个页框
     if (!doc || S.tapped.has(doc)) return
     S.tapped.add(doc)
     doc.addEventListener('click', e => onTap(e, doc))
@@ -490,6 +540,8 @@ const close = () => {
     S.pageMode = 'loc'
     S.pageItems = []
     S.pageMax = 0
+    S.frameIndex = new WeakMap()
+    S.fixedQueue = Promise.resolve()   // 旧书还在等的那几条到时看 S.view 已换，自己丢
 }
 
 // url：https://reader.chen/book/<id>（Kotlin 拦截给文件）；cfi：上次读到的位置（空=从头）；fontPx / theme 开书时一并带来
