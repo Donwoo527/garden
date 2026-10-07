@@ -58,7 +58,7 @@ fun DotsAvatar(big: Dp = 14.dp, small: Dp = 9.dp, gap: Dp = 6.dp, online: Boolea
 
 /** 主页/百宝箱那种：白卡 + 彩色圆角图标 + 标题 */
 @Composable
-fun IconCard(title: String, icon: Int, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun IconCard(title: String, icon: Int, tint: Color, modifier: Modifier = Modifier, dot: Boolean = false, onClick: () -> Unit) {
     // 0.57 走皮肤：面由 Skin 决定（新拟态=凸 纸面=白卡细线 玻璃=半透），按下去的样子也由皮肤定
     Box(modifier.pressable(16.dp, onClick = onClick)) {
         Column(Modifier.fillMaxWidth().padding(vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -68,6 +68,8 @@ fun IconCard(title: String, icon: Int, tint: Color, modifier: Modifier = Modifie
             Spacer(Modifier.height(10.dp))
             Text(title, fontSize = 14.sp, color = LocalSkin.current.ink)
         }
+        // 0.129 卡片右上角小红点（先给「我们的清单」用：辰改了清单她还没看），样子照设置 tab 的更新点
+        if (dot) Box(Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 10.dp).size(9.dp).background(Color(0xFFE53935), CircleShape))
     }
 }
 

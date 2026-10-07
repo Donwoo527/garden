@@ -227,19 +227,23 @@ object ChatApi {
 
     // ── 0.128 我们的清单（chat_server.py /plans）──────────────
 
-    /** GET /plans 全量；成功顺手写进 ChatClient.plans（页面看的是那份），失败 null（lastError 记原因） */
+    /** GET /plans 全量；成功顺手写进 ChatClient.plans（页面看的是那份），失败 null（lastError 记原因）。
+     *  0.129 回包里带 unread（辰改过、她还没进清单页看）→ ChatClient.plansUnread（百宝箱小红点） */
     fun plans(ctx: Context): List<me.chen.laidian.model.Plan>? {
         val req = Request.Builder().url(ChatClient.baseUrl() + "/plans").header("X-Token", TOKEN).get().build()
         return try {
             http(ctx).newCall(req).execute().use { r ->
                 if (!r.isSuccessful) { lastError = "清单 HTTP ${r.code}"; return null }
-                me.chen.laidian.model.Plan.list(JSONObject(r.body?.string() ?: return null).optJSONArray("items"))
-                    .also { ChatClient.plans.value = it }
+                val o = JSONObject(r.body?.string() ?: return null)
+                if (o.has("unread")) ChatClient.plansUnread.value = o.optBoolean("unread", false)
+                me.chen.laidian.model.Plan.list(o.optJSONArray("items")).also { ChatClient.plans.value = it }
             }
         } catch (e: Exception) { lastError = "清单 ${e.javaClass.simpleName}"; null }
     }
 
-    /** POST /plans：{op:"add",text} / {op:"toggle",id,done} / {op:"edit",id,text} / {op:"delete",id}。
+    /** POST /plans：
+     *  {op:"add",text[,tab][,note]} / {op:"toggle",id,done} / {op:"edit",id[,text][,note][,tab]}（带哪个改哪个）/
+     *  {op:"star",id,stars 0-3} / {op:"pin",id,pinned} / {op:"delete",id}（0.129 加了 tab/note/star/pin）。
      *  成功返回服务端改完的全量（也写进 ChatClient.plans，不用等 ws 广播），失败 null */
     fun planOp(ctx: Context, body: JSONObject): List<me.chen.laidian.model.Plan>? {
         val req = Request.Builder().url(ChatClient.baseUrl() + "/plans").header("X-Token", TOKEN)
@@ -252,6 +256,26 @@ object ChatApi {
                 me.chen.laidian.model.Plan.list(JSONObject(txt).optJSONArray("items")).also { ChatClient.plans.value = it }
             }
         } catch (e: Exception) { lastError = "清单 ${e.javaClass.simpleName}"; null }
+    }
+
+    // 0.129 几个常用 op 的请求体（页面直接用，省得每处手拼 JSON 拼错字段名）
+    fun planAdd(ctx: Context, text: String, tab: String, note: String = "") =
+        planOp(ctx, JSONObject().put("op", "add").put("text", text).put("tab", tab).apply { if (note.isNotEmpty()) put("note", note) })
+    fun planToggle(ctx: Context, id: String, done: Boolean) = planOp(ctx, JSONObject().put("op", "toggle").put("id", id).put("done", done))
+    /** 只带非 null 的那几个字段：只改标题 / 只改备注 / 只挪栏目都行 */
+    fun planEdit(ctx: Context, id: String, text: String? = null, note: String? = null, tab: String? = null) =
+        planOp(ctx, JSONObject().put("op", "edit").put("id", id).apply {
+            text?.let { put("text", it) }; note?.let { put("note", it) }; tab?.let { put("tab", it) }
+        })
+    fun planStar(ctx: Context, id: String, stars: Int) = planOp(ctx, JSONObject().put("op", "star").put("id", id).put("stars", stars))
+    fun planPin(ctx: Context, id: String, pinned: Boolean) = planOp(ctx, JSONObject().put("op", "pin").put("id", id).put("pinned", pinned))
+    fun planDelete(ctx: Context, id: String) = planOp(ctx, JSONObject().put("op", "delete").put("id", id))
+
+    /** 0.129 她进了清单页：POST /plans/seen → 服务端记下、广播 plans_unread=false，小红点灭（失败就等下次进页再清） */
+    fun plansSeen(ctx: Context): Boolean {
+        val ok = postJson(ctx, "/plans/seen", JSONObject())
+        if (ok) ChatClient.plansUnread.value = false
+        return ok
     }
 
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {

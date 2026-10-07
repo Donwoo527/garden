@@ -45,6 +45,9 @@ object ChatClient {
     @Volatile private var searchQuery = ""
     /** 0.128 我们的清单全量（null = 还没拉过）：进清单页 GET /plans、POST 的返回、ws "plans" 广播都落这里，页面只看它 */
     val plans = MutableStateFlow<List<me.chen.laidian.model.Plan>?>(null)
+    /** 0.129 辰（8301）改过清单、她还没进清单页看 → 百宝箱「我们的清单」卡 + 底栏「工具」挂小红点。
+     *  服务端记着（照朋友圈 moments_unread）：ws 一连上推一次、辰每次改推 true、她进页 POST /plans/seen 推 false */
+    val plansUnread = MutableStateFlow(false)
     /** 新消息回调（服务用它在 app 不在前台时弹通知） */
     @Volatile var onMessage: ((Msg) -> Unit)? = null
 
@@ -150,6 +153,7 @@ object ChatClient {
             "reading_anchor" -> AppEvents.readingAnchor.tryEmit(o)
             // 0.128 我们的清单：谁改了服务端都广播全量，直接整份替换（辰在服务器上加/勾的也是这么过来的）
             "plans" -> plans.value = me.chen.laidian.model.Plan.list(o.optJSONArray("items"))
+            "plans_unread" -> plansUnread.value = o.optBoolean("unread", false)   // 0.129 清单小红点
             "moments_config" -> o.optJSONObject("config")?.let { c ->
                 avatarChen.value = c.optString("avatar_chen", "")
                 avatarXiaochen.value = c.optString("avatar_xiaochen", "")

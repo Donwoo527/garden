@@ -100,6 +100,10 @@ fun MainScreen() {
     // 0926 应用内自更新：一次启动后台查一次（AppUpdater 里进程级去重，切后台回来不重查）；有新版设置 tab 挂个点，进设置页那行再弹对话框
     val updateAvail by AppUpdater.available.collectAsState()
     LaunchedEffect(Unit) { AppUpdater.checkOnLaunch(ctx) }
+    // 0.129 她 1007：辰动了清单 → 百宝箱「我们的清单」卡挂红点，dock「工具」图标也挂（照上面朋友圈从卡片冒到 dock 的做法）。
+    // 状态在服务端，ws 一连上就推；这里启动时再 GET 一次兜底（ws 还没连上 / 老服务端不推）
+    val plansUnread by ChatClient.plansUnread.collectAsState()
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { ChatApi.plans(ctx) } }
     val startCall = { ctx.startActivity(Intent(ctx, CallActivity::class.java).putExtra("outgoing", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     // 0.56 底色和底栏跟当前皮肤走（0.52 时是主页灰、其余暖白两套混着）
     val skin = LocalSkin.current
@@ -134,6 +138,10 @@ fun MainScreen() {
                             }
                             // 0926 有新版：设置 tab 图标右上挂个小红点（一个点就够 tab 太窄写不下版本号），进设置页那行写着几号版可更新
                             if (i == 4 && updateAvail != null) {
+                                Box(Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).size(8.dp).background(Color(0xFFE53935), CircleShape))
+                            }
+                            // 0.129 辰改了清单她还没看：「工具」tab（百宝箱）挂个点，进清单页就灭
+                            if (i == 3 && plansUnread) {
                                 Box(Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-2).dp).size(8.dp).background(Color(0xFFE53935), CircleShape))
                             }
                         }
@@ -192,6 +200,7 @@ private fun ToolsScreen() {
     var showPlans by remember { mutableStateOf(false) }
     if (showPlans) BackHandler { showPlans = false }
     if (showPlans) { PlansScreen(onBack = { showPlans = false }); return }
+    val plansUnread by ChatClient.plansUnread.collectAsState()   // 0.129
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
@@ -200,7 +209,7 @@ private fun ToolsScreen() {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconCard("一起读", R.drawable.ic_menu_book, Color(0xFFB98BE8), Modifier.weight(1f)) { showRead = true }
             IconCard("一起听", R.drawable.ic_music_note, Color(0xFFE0668A), Modifier.weight(1f)) { showListen = true }
-            IconCard("我们的清单", R.drawable.ic_checklist, C.Orange, Modifier.weight(1f)) { showPlans = true }   // 0.128
+            IconCard("我们的清单", R.drawable.ic_checklist, C.Orange, Modifier.weight(1f), dot = plansUnread) { showPlans = true }   // 0.128；0.129 辰改过挂红点
         }
         Spacer(Modifier.height(12.dp))
         SectionTitle("内容")
