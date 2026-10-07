@@ -2,6 +2,7 @@ package me.chen.laidian.ui.jet
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -25,12 +26,13 @@ import me.chen.laidian.ui.LocalSkin
 /** 0920 表情/加号面板开着时 点气泡那一下只收面板 不弹表态条（TG 同款） */
 internal val LocalPanelOpen = androidx.compose.runtime.compositionLocalOf { false }
 
-internal val REACTION_SET = listOf("❤", "👍", "😂", "😮", "😢", "🔥", "🥰", "💋")
+// 0.127 她 1005 火车上点的："怎么没有踩！""再加个小丑""再加个😋"→ 👎🤡😋 排在 👍 后面；一排放不下 → 横向可滑
+internal val REACTION_SET = listOf("❤", "👍", "👎", "🤡", "😋", "😂", "😮", "😢", "🔥", "🥰", "💋")
 
-/** 一排 8 个 emoji 点一个就回调；放在 DropdownMenu 里当第一行 */
+/** 一排 emoji（0.127 起 11 个，横向可滑）点一个就回调；放在 DropdownMenu 里当第一行 */
 @Composable
 internal fun ReactionRow(onPick: (String) -> Unit) {
-    Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         REACTION_SET.forEach { e ->
             Text(e, fontSize = 22.sp, modifier = Modifier.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onPick(e) })
         }
