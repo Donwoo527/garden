@@ -4,6 +4,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -14,9 +15,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +43,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
@@ -70,18 +73,25 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
@@ -107,6 +117,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -172,7 +183,64 @@ private class StarFan {
     fun close() { id = null; hover = 0 }
 }
 
+// 0.130 拖动换栏：标签的命中范围往外放一点（手指粗，标签只有 38dp 高），单位 dp
+private const val DROP_SLACK_X = 4f      // 左右各放半个标签间距
+private const val DROP_SLACK_UP = 30f    // 往上放到「计划清单」那行
+private const val DROP_SLACK_DOWN = 14f  // 往下放一点；手指在这条线以上 = 到标签栏那一带了
+private const val GHOST_GAP = 26f        // 到标签栏那一带时浮层缩小，顶边挪到手指下面这么远（别把要放的标签挡住）
+
+/**
+ * 0.130 长按拖到别的栏（她："就像拖文件夹一样的"）：拿起来的那条、手指在哪、各标签在哪，全用窗口坐标（跟星的扇形一套）。
+ * 状态放页面最外层：浮层画在整页最上面；列表里原来那条只剩个淡影。
+ */
+@Stable
+private class PlanDrag {
+    var id by mutableStateOf<String?>(null)         // 拿着的那条（松手后飞回去 / 缩没那一下也算，动画完才清）
+    var active by mutableStateOf(false)             // 手指还按着
+    var pointer by mutableStateOf(Offset.Zero)      // 手指
+    var hover by mutableStateOf<String?>(null)      // 悬在哪个能放的标签上（别的栏；「已完成」和它自己那栏不算）
+    var overBar by mutableStateOf(false)            // 手指到标签栏那一带了
+    var settling by mutableStateOf(false)           // 松手了，浮层在飞回去 / 缩没
+    var gone by mutableStateOf(false)               // 这次是放进别的栏了（浮层缩没，不飞回去）
+    var fromTab = Plan.TAB_COMMON
+    var label = ""
+    var grab = Offset.Zero                          // 手指在那条里的位置（相对那条左上角）
+    var origin = Offset.Zero                        // 那条原来的左上角
+    var size = IntSize.Zero
+    val tabs = HashMap<String, Rect>()              // 四个标签的 bounds（PlanTabs 里 onGloballyPositioned 记）
+    val settle = Animatable(Offset.Zero, Offset.VectorConverter)   // 松手后浮层左上角
+    val fade = Animatable(0f)                       // 放进别的栏：0→1 缩没
+    var job: Job? = null
+
+    fun begin(planId: String, from: String, lbl: String, rowTopLeft: Offset, rowSize: IntSize, pt: Offset) {
+        job?.cancel(); job = null
+        id = planId; fromTab = from; label = lbl
+        origin = rowTopLeft; size = rowSize; grab = pt - rowTopLeft
+        pointer = pt; hover = null; overBar = false; settling = false; gone = false
+        active = true
+    }
+
+    fun move(pt: Offset, d: Density) {
+        pointer = pt
+        if (tabs.isEmpty()) return
+        val sx = with(d) { DROP_SLACK_X.dp.toPx() }
+        val su = with(d) { DROP_SLACK_UP.dp.toPx() }
+        val sd = with(d) { DROP_SLACK_DOWN.dp.toPx() }
+        var hit: String? = null
+        var bottom = Float.NEGATIVE_INFINITY
+        for ((k, r) in tabs) {
+            bottom = max(bottom, r.bottom)
+            if (pt.x >= r.left - sx && pt.x <= r.right + sx && pt.y >= r.top - su && pt.y <= r.bottom + sd) hit = k
+        }
+        overBar = pt.y <= bottom + sd
+        hover = hit?.takeIf { k -> k != fromTab && Plan.TABS.any { it.first == k } }
+    }
+
+    fun clear() { id = null; active = false; hover = null; overBar = false; settling = false; gone = false }
+}
+
 private fun Plan.title1() = text.replace('\n', ' ')
+private fun planDate(sec: Double): String = SimpleDateFormat("yyyy/M/d", Locale.CHINA).format(Date((sec * 1000).toLong()))
 
 /**
  * 0.129 计划清单 v2（百宝箱→我们的清单），照她 1007 手画的三张图：
@@ -180,6 +248,7 @@ private fun Plan.title1() = text.replace('\n', ' ')
  * - 每条：左圆圈 + 标题，下一行小字是备注（便签，一行省略），右边写下那天的日期 + 谁加的，最右星
  * - 星只管排序（星多在前），不等于置顶；点星 0↔1，按住星往上滑弹 1/2/3 选几星
  * - 长按整条 → 小气泡「置顶 / 取消置顶」；双击标题直接改；单击进详情；左滑露红色删除（有星的先确认）
+ * - 0.130 长按到了手指不松接着拖 = 拿起来，拖到顶上别的栏标签上松手 = 挪过去（她："就像拖文件夹一样的"）
  * - 打勾 → 变灰删除线，进「已完成」，原栏也继续显示；勾了三天没动静沉到该栏最底
  * 数据全在服务端 data/plans.json（辰在服务器上走 8301 /plans），ws "plans" 广播全量实时刷新。
  * 失败只 Toast + 回弹，输入的字不丢。0.128 的打勾动画（CheckCircle）原样留着。
@@ -190,6 +259,10 @@ private fun Plan.title1() = text.replace('\n', ' ')
  *   圆圈：clickable，只管打勾。
  *   标题文字（只有字本身那么宽）：单击进详情 / 双击改标题 / 长按置顶气泡。有双击所以单击要等双击超时（约 300ms）才进详情。
  *   整条其余地方（备注、日期、空白）：单击立刻进详情（不等）/ 长按置顶气泡。
+ *   0.130 上面两处的单击/双击/长按从 detectTapGestures 换成 detectTapLongDrag（语义照抄），只多一步：
+ *              长按到了（气泡弹出、轻震）手指不松、挪过 touchSlop = 气泡收起、这条拿起来跟手走；长按之后的移动全吃掉
+ *              （原来 detectTapGestures 长按后也是全吃到松手），所以拖的时候列表不滚、不左滑；这根手指从按下就归整条了，星的上滑也起不来。
+ *              长按没挪就松手 = 跟以前一样，气泡留着。
  *   整条外层：横向拖过 touchSlop = 左滑删除（只认水平分量）；竖向拖 = 列表滚动（verticalScroll），谁先过 slop 归谁。
  *   有一条左滑开着时，点任何一条 = 先把它合上（不进详情）。
  */
@@ -239,6 +312,10 @@ fun PlansScreen(onBack: () -> Unit) {
     var justAdded by remember { mutableStateOf<String?>(null) }
     var rootPos by remember { mutableStateOf(Offset.Zero) }
     val fan = remember { StarFan() }
+    val drag = remember { PlanDrag() }
+    val haptic = LocalHapticFeedback.current
+    // 0.130 拖着划进一个能放的标签：轻轻一震（跟星的扇形划到泡泡上一样）
+    LaunchedEffect(drag.hover) { if (drag.hover != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) }
     val scroll = rememberScrollState()
     val nowSec = System.currentTimeMillis() / 1000.0
 
@@ -273,6 +350,50 @@ fun PlansScreen(onBack: () -> Unit) {
     fun setStars(p: Plan, n: Int) { if (n != p.stars) send(pStars, p.id, n, "星没标上") { ChatApi.planStar(ctx, p.id, n) } }
     fun setPin(p: Plan, v: Boolean) { if (v != p.pinned) send(pPin, p.id, v, if (v) "没置顶上" else "没取消置顶") { ChatApi.planPin(ctx, p.id, v) } }
     fun setTab(p: Plan, t: String) { if (t != p.tab) send(pTab, p.id, t, "没挪过去") { ChatApi.planEdit(ctx, p.id, tab = t) } }
+
+    // 0.130 拖到别的栏松手：先按挪过去画（这条马上从当前栏消失），回包了说一声挪到哪；失败弹回原栏 + Toast，不丢
+    fun moveTo(p: Plan, t: String): Boolean {
+        if (t == p.tab || p.id in pTab) return false
+        pTab[p.id] = t
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { ChatApi.planEdit(ctx, p.id, tab = t) }
+            if (r != null) server = r
+            pTab.remove(p.id)
+            toast(if (r != null) "挪到 ${Plan.tabName(t)} 了" else "没挪过去（${why()}）放回原处了")
+        }
+        return true
+    }
+    // 0.130 拿起来：气泡收起、左滑合上
+    fun liftStart(p: Plan, label: String, rowTopLeft: Offset, rowSize: IntSize, pt: Offset) {
+        pinMenu = null
+        swipeOpenId = null
+        drag.begin(p.id, p.tab, label, rowTopLeft, rowSize, pt)
+    }
+    fun liftMove(id: String, pt: Offset) { if (drag.id == id && drag.active) drag.move(pt, density) }
+    // drop = true 正常松手（看落在哪）；false = 手势被打断（这条被刷掉了等），一律回原位
+    fun liftEnd(id: String, drop: Boolean) {
+        if (drag.id != id || !drag.active) return
+        val target = if (drop) drag.hover else null
+        val p = current(id)
+        val moved = target != null && p != null && moveTo(p, target)
+        drag.active = false
+        drag.hover = null
+        if (!moved) drag.overBar = false   // 回原位那一下浮层同时变回原大小
+        val from = drag.pointer - drag.grab
+        drag.job = scope.launch {
+            try {
+                // 先把两个动画值摆好再切 settling / gone，不然有一帧会读到上一次留下的值（闪一下）
+                drag.settle.snapTo(from)
+                drag.fade.snapTo(0f)
+                drag.gone = moved
+                drag.settling = true
+                if (moved) drag.fade.animateTo(1f, tween(180))
+                else drag.settle.animateTo(drag.origin, tween(220))
+            } finally {
+                if (drag.id == id && !drag.active) drag.clear()   // 期间又拿起了一条就别清
+            }
+        }
+    }
 
     fun delete(p: Plan) {
         if (p.id in pDel) return
@@ -385,9 +506,10 @@ fun PlansScreen(onBack: () -> Unit) {
     val doneList = all.filter { it.done }.sortedByDescending { it.doneAt }
 
     val row: @Composable (Plan, Boolean) -> Unit = { p, inDoneTab ->
+        val label = if (inDoneTab) Plan.tabName(p.tab) else if (p.isChen) "辰加的" else "我加的"
         PlanRow(
             p = p,
-            label = if (inDoneTab) Plan.tabName(p.tab) else if (p.isChen) "辰加的" else "我加的",
+            label = label,
             editing = editTitleId == p.id,
             draft = titleDraft,
             onDraft = { titleDraft = it },
@@ -405,6 +527,10 @@ fun PlansScreen(onBack: () -> Unit) {
             onStarSet = { n -> setStars(p, n) },
             onDelete = { requestDelete(p) },
             bring = justAdded == p.id,
+            lifted = drag.id == p.id,
+            onLift = { tl, sz, pt -> liftStart(p, label, tl, sz, pt) },
+            onLiftMove = { pt -> liftMove(p.id, pt) },
+            onLiftEnd = { drop -> liftEnd(p.id, drop) },
         )
     }
 
@@ -429,7 +555,7 @@ fun PlansScreen(onBack: () -> Unit) {
                 TextButton(onClick = onBack) { Text("← 百宝箱", color = skin.muted) }
                 Text("计划清单", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = skin.ink)
                 Spacer(Modifier.height(14.dp))
-                PlanTabs(tab) { selectTab(it) }
+                PlanTabs(tab, drag) { selectTab(it) }
             }
             Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 14.dp)) {
                 when {
@@ -453,7 +579,7 @@ fun PlansScreen(onBack: () -> Unit) {
                 if (server != null) {
                     Spacer(Modifier.height(22.dp))
                     Text(
-                        "单击看详情 · 双击标题改字 · 长按置顶 · 左滑删除\n星：点一下开关，按住往上滑选 1–3 颗",
+                        "单击看详情 · 双击标题改字 · 长按置顶 · 左滑删除\n长按后别松手，拖到上面别的栏 = 挪过去\n星：点一下开关，按住往上滑选 1–3 颗",
                         fontSize = 11.5.sp, lineHeight = 17.sp, color = skin.muted.copy(alpha = 0.8f),
                         textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
                     )
@@ -484,13 +610,17 @@ fun PlansScreen(onBack: () -> Unit) {
                     Box(
                         Modifier.padding(start = 10.dp).size(44.dp).then(if (canSend) Modifier.pressable(22.dp) { add() } else Modifier.flat(22.dp)),
                         contentAlignment = Alignment.Center,
-                    ) { Icon(Icons.Default.Send, contentDescription = "加一条", tint = if (canSend) skin.accent else skin.muted, modifier = Modifier.size(20.dp)) }
+                    // 0.130 她要清单页去掉那个蓝：发送箭头跟聊天页的发送键一样用 ink（浅橘的箭头在凸起的键上看不见）
+                    ) { Icon(Icons.Default.Send, contentDescription = "加一条", tint = if (canSend) skin.ink else skin.muted, modifier = Modifier.size(20.dp)) }
                 }
             }
         }
 
         // ---------- 星的扇形泡泡：画在整页最上层 ----------
         StarFanOverlay(fan, rootPos)
+
+        // ---------- 0.130 拿起来跟着手指走的那条：也画在整页最上层 ----------
+        if (detailId == null) drag.id?.let { id -> all.firstOrNull { it.id == id }?.let { DragGhost(drag, it, rootPos) } }
 
         // ---------- 长按一条 → 按下的地方上面冒个小气泡：置顶 / 取消置顶 ----------
         pinMenu?.let { (id, rel) ->
@@ -532,19 +662,26 @@ private class AbovePoint(private val rel: Offset, private val gap: Int, private 
     }
 }
 
-/** 四个标签：选中的凹下去（她的凹凸语言：选中 = 按下去的状态），没选的凸起可按 */
+/**
+ * 四个标签：选中的凹下去（她的凹凸语言：选中 = 按下去的状态），没选的凸起可按
+ * 0.130 拖着一条悬在能放的标签上：那个也按下去 + 铺一层对话气泡的橘色；各标签的位置记进 drag.tabs 给拖动命中用
+ */
 @Composable
-private fun PlanTabs(selected: String, onSelect: (String) -> Unit) {
+private fun PlanTabs(selected: String, drag: PlanDrag, onSelect: (String) -> Unit) {
     val skin = LocalSkin.current
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         (Plan.TABS + (Plan.TAB_DONE to "已完成")).forEach { (k, name) ->
             val sel = selected == k
+            val hot = drag.hover == k
             Box(
-                Modifier.weight(1f).height(38.dp).then(if (sel) Modifier.sunken(12.dp) else Modifier.pressable(12.dp) { onSelect(k) }),
+                Modifier.weight(1f).height(38.dp)
+                    .onGloballyPositioned { drag.tabs[k] = it.boundsInWindow() }
+                    .then(if (sel || hot) Modifier.sunken(12.dp) else Modifier.pressable(12.dp) { onSelect(k) })
+                    .then(if (hot) Modifier.background(skin.bubbleChen.copy(alpha = 0.75f), RoundedCornerShape(12.dp)) else Modifier),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(name, fontSize = 13.5.sp, maxLines = 1, color = if (sel) skin.ink else skin.muted,
-                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal)
+                Text(name, fontSize = 13.5.sp, maxLines = 1, color = if (sel || hot) skin.ink else skin.muted,
+                    fontWeight = if (sel || hot) FontWeight.SemiBold else FontWeight.Normal)
             }
         }
     }
@@ -601,6 +738,10 @@ private fun PlanRow(
     onStarSet: (Int) -> Unit,
     onDelete: () -> Unit,
     bring: Boolean,
+    lifted: Boolean,                                 // 0.130 这条正被拿着：原位置只留个淡影
+    onLift: (Offset, IntSize, Offset) -> Unit,       // 0.130 拿起来：这条的左上角、大小、手指（都是窗口坐标）
+    onLiftMove: (Offset) -> Unit,                    // 0.130 手指挪到哪（窗口坐标）
+    onLiftEnd: (Boolean) -> Unit,                    // 0.130 true = 松手；false = 手势被打断
 ) {
     val skin = LocalSkin.current
     val density = LocalDensity.current
@@ -615,20 +756,26 @@ private fun PlanRow(
     val onOpenS = rememberUpdatedState(onOpen)
     val onEditS = rememberUpdatedState(onEditTitle)
     val onLongS = rememberUpdatedState(onLongPress)
+    val onLiftS = rememberUpdatedState(onLift)
+    val onLiftMoveS = rememberUpdatedState(onLiftMove)
+    val onLiftEndS = rememberUpdatedState(onLiftEnd)
 
     val revealPx = with(density) { 76.dp.toPx() }
     val offsetX = remember { Animatable(0f) }
     LaunchedEffect(swipeOpen) { if (!swipeOpen && offsetX.value != 0f) offsetX.animateTo(0f, tween(180)) }
     val rowWin = remember { Holder(Offset.Zero) }
+    val rowSize = remember { Holder(IntSize.Zero) }
     val titleWin = remember { Holder(Offset.Zero) }
     val bringer = remember { BringIntoViewRequester() }
     LaunchedEffect(bring) { if (bring) { delay(80); bringer.bringIntoView() } }
     // 打勾时字跟着慢慢变灰（她："打个勾他就会灰掉"）
     val gray by animateFloatAsState(if (p.done) 1f else 0f, tween(260), label = "plan_gray")
-    val date = remember(p.created) { SimpleDateFormat("yyyy/M/d", Locale.CHINA).format(Date((p.created * 1000).toLong())) }
+    val date = remember(p.created) { planDate(p.created) }
+    val liftAlpha by animateFloatAsState(if (lifted) 0.28f else 1f, tween(140), label = "plan_lift")
 
     Box(
         Modifier.fillMaxWidth().bringIntoViewRequester(bringer).clipToBounds()
+            .graphicsLayer { alpha = liftAlpha }
             .pointerInput(p.id) {
                 detectHorizontalDragGestures(
                     onDragStart = { if (!editingS.value) onSwipeS.value(true) },
@@ -663,9 +810,9 @@ private fun PlanRow(
         Row(
             Modifier.fillMaxWidth()
                 .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                .onGloballyPositioned { rowWin.v = it.positionInWindow() }
+                .onGloballyPositioned { rowWin.v = it.positionInWindow(); rowSize.v = it.size }
                 .pointerInput(p.id) {
-                    detectTapGestures(
+                    detectTapLongDrag(
                         onTap = {
                             when {
                                 editingS.value -> onCommitS.value()
@@ -673,12 +820,17 @@ private fun PlanRow(
                                 else -> onOpenS.value()
                             }
                         },
+                        onDoubleTap = null,
                         onLongPress = { o ->
-                            if (!editingS.value) {
+                            if (editingS.value) false else {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onLongS.value(rowWin.v + o)
+                                true
                             }
                         },
+                        onDragStart = { o -> onLiftS.value(rowWin.v, rowSize.v, rowWin.v + o) },
+                        onDrag = { o -> onLiftMoveS.value(rowWin.v + o) },
+                        onDragEnd = { drop -> onLiftEndS.value(drop) },
                     )
                 }
                 .padding(start = 4.dp, end = 2.dp, top = 6.dp, bottom = 8.dp),
@@ -698,13 +850,18 @@ private fun PlanRow(
                         modifier = Modifier
                             .onGloballyPositioned { titleWin.v = it.positionInWindow() }
                             .pointerInput(p.id) {
-                                detectTapGestures(
+                                detectTapLongDrag(
                                     onTap = { if (anyOpenS.value) onCloseAllS.value() else onOpenS.value() },
                                     onDoubleTap = { if (anyOpenS.value) onCloseAllS.value() else onEditS.value() },
                                     onLongPress = { o ->
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onLongS.value(titleWin.v + o)
+                                        true
                                     },
+                                    // 拿起来的是整条（浮层按整条画），手指位置从标题坐标换成窗口坐标
+                                    onDragStart = { o -> onLiftS.value(rowWin.v, rowSize.v, titleWin.v + o) },
+                                    onDrag = { o -> onLiftMoveS.value(titleWin.v + o) },
+                                    onDragEnd = { drop -> onLiftEndS.value(drop) },
                                 )
                             },
                     )
@@ -723,6 +880,157 @@ private fun PlanRow(
             }
             StarButton(p.id, p.stars, fan, onStarTap, onStarSet)
         }
+    }
+}
+
+/**
+ * 0.130 替掉整条 / 标题上原来的 detectTapGestures：单击、双击（onDoubleTap 给了才等双击）、长按，语义照抄 detectTapGestures；
+ * 多一步——长按到了手指不松、挪过 touchSlop = 拖（onDragStart / onDrag 给的是这个组件自己的坐标；onDragEnd(true) 松手，false 被打断）。
+ * onLongPress 返回 false = 这次长按不往下接（比如正在改字），跟原来一样吃到松手为止。
+ * 长按之后的所有移动都吃掉：外层的左滑删除、列表滚动都拿不到（原来 detectTapGestures 长按后也是 consumeUntilUp）。
+ */
+private suspend fun PointerInputScope.detectTapLongDrag(
+    onTap: () -> Unit,
+    onDoubleTap: (() -> Unit)?,
+    onLongPress: (Offset) -> Boolean,
+    onDragStart: (Offset) -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: (Boolean) -> Unit,
+) = awaitEachGesture {
+    val down = awaitFirstDown()   // 星 / 圆圈先吃了 down 的话这里收不到，跟原来一样
+    down.consume()
+    var long = false
+    val up = try {
+        withTimeout(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation() }
+    } catch (e: PointerEventTimeoutCancellationException) {
+        long = true; null
+    }
+
+    if (!long) {
+        if (up == null) return@awaitEachGesture   // 挪远了被列表滚动 / 左滑拿走了
+        up.consume()
+        if (onDoubleTap == null) { onTap(); return@awaitEachGesture }
+        val second = withTimeoutOrNull(viewConfiguration.doubleTapTimeoutMillis) {
+            val minUptime = up.uptimeMillis + viewConfiguration.doubleTapMinTimeMillis
+            var c: PointerInputChange
+            do { c = awaitFirstDown() } while (c.uptimeMillis < minUptime)
+            c
+        }
+        if (second == null) { onTap(); return@awaitEachGesture }
+        second.consume()
+        var timedOut = false
+        val up2 = try {
+            withTimeout(viewConfiguration.longPressTimeoutMillis) { waitForUpOrCancellation() }
+        } catch (e: PointerEventTimeoutCancellationException) {
+            timedOut = true; null
+        }
+        if (up2 != null) { up2.consume(); onDoubleTap() }
+        else { onTap(); if (timedOut) eatUntilUp() }   // 第二下按住不放 / 被拿走：算单击（detectTapGestures 也是这样）
+        return@awaitEachGesture
+    }
+
+    // ---- 长按到了 ----
+    if (!onLongPress(down.position)) { eatUntilUp(); return@awaitEachGesture }
+    val slop = viewConfiguration.touchSlop
+    var dragging = false
+    var ended = false
+    try {
+        while (true) {
+            val ev = awaitPointerEvent()
+            ev.changes.forEach { it.consume() }   // 长按之后：列表不滚、不左滑
+            val c = ev.changes.firstOrNull { it.id == down.id }
+            if (c == null || !c.pressed) {
+                if (dragging) {
+                    c?.let { onDrag(it.position) }
+                    ended = true
+                    onDragEnd(true)
+                }
+                if (ev.changes.any { it.pressed }) eatUntilUp()   // 还有别的手指按着：一起吃到松
+                break
+            }
+            if (!dragging && (c.position - down.position).getDistance() > slop) {
+                dragging = true
+                onDragStart(c.position)
+            }
+            if (dragging) onDrag(c.position)
+        }
+    } finally {
+        if (dragging && !ended) onDragEnd(false)   // 这条被刷掉了 / 手势协程被取消：回原位
+    }
+}
+
+/** 吃掉剩下的事件直到手指全松开（只在还有手指按着时调） */
+private suspend fun AwaitPointerEventScope.eatUntilUp() {
+    while (true) {
+        val ev = awaitPointerEvent()
+        ev.changes.forEach { it.consume() }
+        if (ev.changes.none { it.pressed }) break
+    }
+}
+
+/**
+ * 0.130 拿起来跟着手指走的那条：半透明、带阴影、略放大；手指到标签栏那一带就缩小、挪到手指下面（别挡住要放的标签）；
+ * 松手放进别的栏 = 原地缩没；放别处 = 飞回原位（PlanDrag.settle）
+ */
+@Composable
+private fun DragGhost(drag: PlanDrag, p: Plan, rootPos: Offset) {
+    val skin = LocalSkin.current
+    val d = LocalDensity.current
+    val w = drag.size.width
+    val h = drag.size.height
+    if (w <= 0 || h <= 0) return
+    val k by animateFloatAsState(if (drag.overBar) 1f else 0f, tween(140), label = "ghost_bar")
+    val gap = with(d) { GHOST_GAP.dp.toPx() }
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        Modifier
+            .offset {
+                val tl = (if (drag.settling) drag.settle.value else drag.pointer - drag.grab) - rootPos
+                IntOffset(tl.x.roundToInt(), tl.y.roundToInt())
+            }
+            .width(with(d) { w.toDp() })
+            .graphicsLayer {
+                val f = if (drag.gone) drag.fade.value else 0f
+                val s = (1.04f + (0.6f - 1.04f) * k) * (1f - 0.6f * f)
+                // 以手指那点为中心缩放；到标签栏那一带再整个往下挪，让顶边落在手指下面 GHOST_GAP 处
+                transformOrigin = TransformOrigin((drag.grab.x / w).coerceIn(0f, 1f), (drag.grab.y / h).coerceIn(0f, 1f))
+                scaleX = s; scaleY = s
+                translationY = k * (gap + drag.grab.y * s)
+                alpha = (0.92f - 0.12f * k) * (1f - f)
+            }
+            .shadow(10.dp, shape)
+            .clip(shape)
+            .background(skin.surface.copy(alpha = 1f)),
+    ) { PlanRowFace(p, drag.label) }
+}
+
+/** 0.130 一条的样子（不带手势），拖起来的浮层用；排版跟 PlanRow 对齐 */
+@Composable
+private fun PlanRowFace(p: Plan, label: String) {
+    val skin = LocalSkin.current
+    val date = remember(p.created) { planDate(p.created) }
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 2.dp, top = 6.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
+        CheckCircle(p.done, null)
+        Spacer(Modifier.width(4.dp))
+        Column(Modifier.weight(1f).padding(top = 5.dp)) {
+            Text(
+                p.title1(), fontSize = 15.sp, lineHeight = 21.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (p.done) skin.muted else skin.ink,
+                textDecoration = if (p.done) TextDecoration.LineThrough else null,
+            )
+            if (p.note.isNotBlank()) {
+                Text(
+                    p.note.replace('\n', ' '), fontSize = 12.5.sp, lineHeight = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = skin.muted.copy(alpha = if (p.done) 0.7f else 1f), modifier = Modifier.padding(top = 1.dp),
+                )
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.padding(top = 7.dp), horizontalAlignment = Alignment.End) {
+            Text(date, fontSize = 11.5.sp, lineHeight = 15.sp, color = skin.muted, maxLines = 1)
+            Text(label, fontSize = 10.5.sp, lineHeight = 14.sp, color = skin.muted.copy(alpha = 0.8f), maxLines = 1, modifier = Modifier.padding(top = 3.dp))
+        }
+        Box(Modifier.size(width = 40.dp, height = 32.dp), contentAlignment = Alignment.Center) { StarFace(p.stars) }
     }
 }
 
@@ -814,13 +1122,17 @@ private fun StarButton(planId: String, stars: Int, fan: StarFan, onTap: () -> Un
                 }
             },
         contentAlignment = Alignment.Center,
-    ) {
-        StarGlyph(stars > 0, 19.dp)
-        // 两星三星：星的右上角挂个小数字（星本身不变宽，免得日期跟着挪）
-        if (stars >= 2) {
-            Text("$stars", fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold, color = StarGold,
-                modifier = Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 4.dp))
-        }
+    ) { StarFace(stars) }
+}
+
+/** 星的样子（0.130 从 StarButton 里拆出来，拖起来的浮层也用） */
+@Composable
+private fun BoxScope.StarFace(stars: Int) {
+    StarGlyph(stars > 0, 19.dp)
+    // 两星三星：星的右上角挂个小数字（星本身不变宽，免得日期跟着挪）
+    if (stars >= 2) {
+        Text("$stars", fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold, color = StarGold,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 4.dp))
     }
 }
 
@@ -835,7 +1147,9 @@ private fun StarFanOverlay(fan: StarFan, rootPos: Offset) {
         val c = fan.bubble(i, d) - rootPos
         val hovered = fan.hover == i
         val sc by animateFloatAsState(if (hovered) 1.25f else 1f, tween(110), label = "fan$i")
-        val bg = if (hovered) skin.accent else skin.ink.copy(alpha = 0.9f)
+        // 0.130 选中的泡泡从强调蓝换成对话气泡的橘（她 1007：颜色统一成气泡那个橙）；浅橘上白字看不清，字和星换 ink
+        val bg = if (hovered) skin.bubbleChen else skin.ink.copy(alpha = 0.9f)
+        val fg = if (hovered) skin.ink else Color.White
         Column(
             Modifier.offset { IntOffset((c.x - half).roundToInt(), (c.y - half).roundToInt()) }
                 .graphicsLayer { scaleX = sc; scaleY = sc },
@@ -848,9 +1162,9 @@ private fun StarFanOverlay(fan: StarFan, rootPos: Offset) {
                 contentAlignment = Alignment.Center,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("$i", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("$i", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = fg)
                     Spacer(Modifier.width(1.dp))
-                    StarGlyph(true, 10.dp, color = if (hovered) Color.White else StarGold)
+                    StarGlyph(true, 10.dp, color = if (hovered) fg else StarGold)
                 }
             }
             BubbleTail(bg)
@@ -972,7 +1286,15 @@ private fun PlanDetail(
             TextButton(onClick = { leave() }) { Text("← 计划清单", color = skin.muted) }
             Spacer(Modifier.weight(1f))
             if (dirty || saving) {
-                TextButton(enabled = !saving, onClick = { save() }) { Text(if (saving) "保存中…" else "保存", color = skin.accent) }
+                // 0.130 她 1007：「保存」从蓝换成对话气泡的橙。气泡色是浅橘，直接拿来当字色在底色上看不见，
+                // 所以做成一颗气泡色的小胶囊、字用 ink（跟聊天里辰的气泡一个样）
+                TextButton(
+                    enabled = !saving, onClick = { save() },
+                    colors = ButtonDefaults.textButtonColors(
+                        containerColor = skin.bubbleChen, contentColor = skin.ink,
+                        disabledContainerColor = skin.bubbleChen.copy(alpha = 0.6f), disabledContentColor = skin.muted,
+                    ),
+                ) { Text(if (saving) "保存中…" else "保存") }
             }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -1056,18 +1378,25 @@ private fun PlanDetail(
     }
 }
 
-/** 圆圈：没做 = 空心细圈；勾上 = 从中心填满强调色，白勾一笔画出来（小小的，别太花）——0.128 原样 */
+/**
+ * 圆圈：没做 = 空心细圈；勾上 = 从中心填满，勾一笔画出来（小小的，别太花）——0.128 的动画原样
+ * 0.130 她 1007：填充从强调蓝换成对话气泡的橙（skin.bubbleChen，三套皮各跟各的气泡色）；气泡色浅，白勾看不清，勾换 ink（跟气泡里的字一样）
+ * onClick = null：只画不接手指（拖起来的浮层用）
+ */
 @Composable
-private fun CheckCircle(checked: Boolean, onClick: () -> Unit) {
+private fun CheckCircle(checked: Boolean, onClick: (() -> Unit)?) {
     val skin = LocalSkin.current
     val p by animateFloatAsState(if (checked) 1f else 0f, tween(if (checked) 320 else 160), label = "plan_check")
-    Box(Modifier.size(32.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier.size(32.dp).clip(CircleShape).then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        contentAlignment = Alignment.Center,
+    ) {
         Canvas(Modifier.size(22.dp)) {
             val stroke = 1.6.dp.toPx()
             val r = size.minDimension / 2
-            drawCircle(lerp(skin.muted, skin.accent, p), radius = r - stroke / 2, style = Stroke(stroke))
+            drawCircle(lerp(skin.muted, skin.bubbleChen, p), radius = r - stroke / 2, style = Stroke(stroke))
             val fill = (p * 1.6f).coerceAtMost(1f)
-            if (fill > 0f) drawCircle(skin.accent, radius = r * fill)
+            if (fill > 0f) drawCircle(skin.bubbleChen, radius = r * fill)
             val tick = ((p - 0.35f) / 0.65f).coerceIn(0f, 1f)
             if (tick > 0f) {
                 val a = Offset(size.width * 0.28f, size.height * 0.52f)
@@ -1078,10 +1407,10 @@ private fun CheckCircle(checked: Boolean, onClick: () -> Unit) {
                 val drawn = (l1 + l2) * tick
                 val w = 2.dp.toPx()
                 if (drawn <= l1) {
-                    drawLine(Color.White, a, a + (b - a) * (drawn / l1), w, StrokeCap.Round)
+                    drawLine(skin.ink, a, a + (b - a) * (drawn / l1), w, StrokeCap.Round)
                 } else {
-                    drawLine(Color.White, a, b, w, StrokeCap.Round)
-                    drawLine(Color.White, b, b + (c - b) * ((drawn - l1) / l2), w, StrokeCap.Round)
+                    drawLine(skin.ink, a, b, w, StrokeCap.Round)
+                    drawLine(skin.ink, b, b + (c - b) * ((drawn - l1) / l2), w, StrokeCap.Round)
                 }
             }
         }
