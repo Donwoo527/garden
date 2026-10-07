@@ -43,6 +43,8 @@ object ChatClient {
     /** 0926 搜索栏的服务端全量结果（按 ts 正序）；只认最后一次 search() 的 q */
     val searchResults = MutableStateFlow<List<Msg>>(emptyList())
     @Volatile private var searchQuery = ""
+    /** 0.128 我们的清单全量（null = 还没拉过）：进清单页 GET /plans、POST 的返回、ws "plans" 广播都落这里，页面只看它 */
+    val plans = MutableStateFlow<List<me.chen.laidian.model.Plan>?>(null)
     /** 新消息回调（服务用它在 app 不在前台时弹通知） */
     @Volatile var onMessage: ((Msg) -> Unit)? = null
 
@@ -146,6 +148,8 @@ object ChatClient {
             // 0929 一起听 / 一起读：服务端下发的指令，整包交给 AppEvents，服务和页面自己订阅
             "music_cmd" -> AppEvents.musicCmd.tryEmit(o)
             "reading_anchor" -> AppEvents.readingAnchor.tryEmit(o)
+            // 0.128 我们的清单：谁改了服务端都广播全量，直接整份替换（辰在服务器上加/勾的也是这么过来的）
+            "plans" -> plans.value = me.chen.laidian.model.Plan.list(o.optJSONArray("items"))
             "moments_config" -> o.optJSONObject("config")?.let { c ->
                 avatarChen.value = c.optString("avatar_chen", "")
                 avatarXiaochen.value = c.optString("avatar_xiaochen", "")

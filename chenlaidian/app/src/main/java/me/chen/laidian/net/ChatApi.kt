@@ -225,6 +225,35 @@ object ChatApi {
         } catch (e: Exception) { lastError = "抽文字 ${e.javaClass.simpleName}"; null }
     }
 
+    // ── 0.128 我们的清单（chat_server.py /plans）──────────────
+
+    /** GET /plans 全量；成功顺手写进 ChatClient.plans（页面看的是那份），失败 null（lastError 记原因） */
+    fun plans(ctx: Context): List<me.chen.laidian.model.Plan>? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/plans").header("X-Token", TOKEN).get().build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                if (!r.isSuccessful) { lastError = "清单 HTTP ${r.code}"; return null }
+                me.chen.laidian.model.Plan.list(JSONObject(r.body?.string() ?: return null).optJSONArray("items"))
+                    .also { ChatClient.plans.value = it }
+            }
+        } catch (e: Exception) { lastError = "清单 ${e.javaClass.simpleName}"; null }
+    }
+
+    /** POST /plans：{op:"add",text} / {op:"toggle",id,done} / {op:"edit",id,text} / {op:"delete",id}。
+     *  成功返回服务端改完的全量（也写进 ChatClient.plans，不用等 ws 广播），失败 null */
+    fun planOp(ctx: Context, body: JSONObject): List<me.chen.laidian.model.Plan>? {
+        val req = Request.Builder().url(ChatClient.baseUrl() + "/plans").header("X-Token", TOKEN)
+            .post(body.toString().toRequestBody("application/json".toMediaType())).build()
+        return try {
+            http(ctx).newCall(req).execute().use { r ->
+                val txt = r.body?.string() ?: ""
+                // 服务端没这个接口（还没重启）时 404 回的是纯文本，不硬解 JSON
+                if (!r.isSuccessful) { lastError = "清单 HTTP ${r.code} ${runCatching { JSONObject(txt).optString("error") }.getOrDefault("")}".trim(); return null }
+                me.chen.laidian.model.Plan.list(JSONObject(txt).optJSONArray("items")).also { ChatClient.plans.value = it }
+            }
+        } catch (e: Exception) { lastError = "清单 ${e.javaClass.simpleName}"; null }
+    }
+
     private fun postJson(ctx: Context, path: String, o: JSONObject): Boolean {
         val req = Request.Builder().url(ChatClient.baseUrl() + path).header("X-Token", TOKEN)
             .post(o.toString().toRequestBody("application/json".toMediaType())).build()

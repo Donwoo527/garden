@@ -188,6 +188,10 @@ private fun ToolsScreen() {
     var showListen by remember { mutableStateOf(false) }
     if (showListen) BackHandler { showListen = false }
     if (showListen) { ListenScreen(onBack = { showListen = false }); return }
+    // 0.128 我们的清单（她 1007："下次我们弄个计划清单吧，在app里那种"——照苹果提醒事项 两人都能加 打勾灰掉收进已完成）
+    var showPlans by remember { mutableStateOf(false) }
+    if (showPlans) BackHandler { showPlans = false }
+    if (showPlans) { PlansScreen(onBack = { showPlans = false }); return }
     val todo = { name: String -> Toast.makeText(ctx, "$name 下一版", Toast.LENGTH_SHORT).show() }
     val open = { url: String -> ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
     Column(Modifier.fillMaxSize().background(LocalSkin.current.bg).verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
@@ -196,7 +200,7 @@ private fun ToolsScreen() {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconCard("一起读", R.drawable.ic_menu_book, Color(0xFFB98BE8), Modifier.weight(1f)) { showRead = true }
             IconCard("一起听", R.drawable.ic_music_note, Color(0xFFE0668A), Modifier.weight(1f)) { showListen = true }
-            Spacer(Modifier.weight(1f))
+            IconCard("我们的清单", R.drawable.ic_checklist, C.Orange, Modifier.weight(1f)) { showPlans = true }   // 0.128
         }
         Spacer(Modifier.height(12.dp))
         SectionTitle("内容")
